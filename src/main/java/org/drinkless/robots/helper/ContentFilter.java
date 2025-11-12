@@ -35,11 +35,8 @@ public class ContentFilter {
 
     // ==================== 敏感关键词黑名单 ====================
     private static final List<String> SENSITIVE_KEYWORDS = Arrays.asList(
-        // 儿童色情相关
-        "cp", "儿童", "幼女", "萝莉", "正太", "童",
-        // 诈骗相关
+        "儿童", "幼女", "童",
         "刷单", "兼职赚钱", "日赚", "免费领取", "加微信",
-        // 博彩相关
         "菠菜", "开户", "彩票", "赌博"
     );
 
