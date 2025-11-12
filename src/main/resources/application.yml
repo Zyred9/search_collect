@@ -1,0 +1,11 @@
+spring:
+  profiles:
+    active: prod
+server:
+  port: 8813
+  servlet:
+    context-path: /collect
+
+
+# 进程占用：lsof | grep ./tdlib/td.binlog
+# 启动服务：nohup java -Djava.library.path=/usr/local/bin -jar chsx9bot-0.0.1-release.jar > bot.log &

@@ -1,0 +1,23 @@
+{
+	"updateId": 975758919,
+	"message": {
+		"messageId": 2709,
+		"from": {
+			"id": 7653000728,
+			"firstName": "好像有道理",
+			"isBot": false,
+			"userName": "DevelopBotAny668",
+			"languageCode": "zh-hans",
+			"isPremium": true
+		},
+		"date": 1762943072,
+		"chat": {
+			"id": 7653000728,
+			"type": "private",
+			"firstName": "好像有道理",
+			"userName": "DevelopBotAny668"
+		},
+		"text": "werwerwerwer",
+		"newChatMembers": []
+	}
+}

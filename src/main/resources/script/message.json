@@ -1,0 +1,179 @@
+{
+	"id": 18189647872,
+	"senderId": {
+		"userId": 1800259936
+	},
+	"chatId": -1001830330321,
+	"isOutgoing": false,
+	"isPinned": false,
+	"isFromOffline": false,
+	"canBeSaved": true,
+	"hasTimestampedMedia": false,
+	"isChannelPost": true,
+	"containsUnreadMention": false,
+	"date": 1762447271,
+	"editDate": 0,
+	"interactionInfo": {
+		"viewCount": 1717,
+		"forwardCount": 0,
+		"replyInfo": {
+			"replyCount": 23,
+			"recentReplierIds": [
+				{
+					"userId": 7239930114
+				},
+				{
+					"userId": 8023984317
+				},
+				{
+					"userId": 7381947339
+				}
+			],
+			"lastReadInboxMessageId": 0,
+			"lastReadOutboxMessageId": 0,
+			"lastMessageId": 184419352576
+		}
+	},
+	"unreadReactions": [],
+	"replyTo": {
+		"chatId": -1001830330321,
+		"messageId": 18187550720,
+		"originSendDate": 0
+	},
+	"messageThreadId": 0,
+	"selfDestructIn": 0,
+	"autoDeleteIn": 0,
+	"viaBotUserId": 0,
+	"senderBusinessBotUserId": 0,
+	"senderBoostCount": 0,
+	"paidMessageStarCount": 0,
+	"authorSignature": "狗蛋 Goudan",
+	"mediaAlbumId": 0,
+	"effectId": 0,
+	"hasSensitiveContent": false,
+	"restrictionReason": "",
+	"content": {
+		"photo": {
+			"hasStickers": false,
+			"minithumbnail": {
+				"width": 18,
+				"height": 40,
+				"data": []
+			},
+			"sizes": [
+				{
+					"type": "m",
+					"photo": {
+						"id": 1810,
+						"size": 13444,
+						"expectedSize": 13444,
+						"local": {
+							"path": "",
+							"canBeDownloaded": true,
+							"canBeDeleted": false,
+							"isDownloadingActive": false,
+							"isDownloadingCompleted": false,
+							"downloadOffset": 0,
+							"downloadedPrefixSize": 0,
+							"downloadedSize": 0
+						},
+						"remote": {
+							"id": "AgACAgUAAx0CbRif0QACQ8NpFCpAKYPChFk9-3k_QtG7BNGn_QACUwxrG3qJaFTh2vNq7SfqtQEAAwIAA20AAzYE",
+							"uniqueId": "AQADUwxrG3qJaFRy",
+							"isUploadingActive": false,
+							"isUploadingCompleted": true,
+							"uploadedSize": 13444
+						}
+					},
+					"width": 147,
+					"height": 320,
+					"progressiveSizes": []
+				},
+				{
+					"type": "x",
+					"photo": {
+						"id": 1811,
+						"size": 60554,
+						"expectedSize": 60554,
+						"local": {
+							"path": "",
+							"canBeDownloaded": true,
+							"canBeDeleted": false,
+							"isDownloadingActive": false,
+							"isDownloadingCompleted": false,
+							"downloadOffset": 0,
+							"downloadedPrefixSize": 0,
+							"downloadedSize": 0
+						},
+						"remote": {
+							"id": "AgACAgUAAx0CbRif0QACQ8NpFCpAKYPChFk9-3k_QtG7BNGn_QACUwxrG3qJaFTh2vNq7SfqtQEAAwIAA3gAAzYE",
+							"uniqueId": "AQADUwxrG3qJaFR9",
+							"isUploadingActive": false,
+							"isUploadingCompleted": true,
+							"uploadedSize": 60554
+						}
+					},
+					"width": 367,
+					"height": 800,
+					"progressiveSizes": []
+				},
+				{
+					"type": "y",
+					"photo": {
+						"id": 1812,
+						"size": 80136,
+						"expectedSize": 80136,
+						"local": {
+							"path": "",
+							"canBeDownloaded": true,
+							"canBeDeleted": false,
+							"isDownloadingActive": false,
+							"isDownloadingCompleted": false,
+							"downloadOffset": 0,
+							"downloadedPrefixSize": 0,
+							"downloadedSize": 0
+						},
+						"remote": {
+							"id": "AgACAgUAAx0CbRif0QACQ8NpFCpAKYPChFk9-3k_QtG7BNGn_QACUwxrG3qJaFTh2vNq7SfqtQEAAwIAA3kAAzYE",
+							"uniqueId": "AQADUwxrG3qJaFR-",
+							"isUploadingActive": false,
+							"isUploadingCompleted": true,
+							"uploadedSize": 80136
+						}
+					},
+					"width": 588,
+					"height": 1280,
+					"progressiveSizes": [
+						8161,
+						18847,
+						29433,
+						45946
+					]
+				}
+			]
+		},
+		"caption": {
+			"text": "@SoSoYinYueBot  用户名太长了，但是我实在看不上 @gequ 这个用户名。 @ting 又不卖，我现在很难过💔",
+			"entities": [
+				{
+					"offset": 0,
+					"length": 14,
+					"type": {}
+				},
+				{
+					"offset": 32,
+					"length": 5,
+					"type": {}
+				},
+				{
+					"offset": 45,
+					"length": 5,
+					"type": {}
+				}
+			]
+		},
+		"showCaptionAboveMedia": false,
+		"hasSpoiler": false,
+		"isSecret": false
+	}
+}
