@@ -14,5 +14,5 @@ import org.springframework.stereotype.Repository;
  * @since 1.0
  */
 @Repository
-public interface SearchRepository extends ElasticsearchRepository<SearchBean, Long> {
+public interface SearchRepository extends ElasticsearchRepository<SearchBean, String> {
 }
