@@ -40,7 +40,7 @@ public class ClientManager {
     // ==================== 历史消息补齐配置 ====================
     private static final int HISTORY_PAGE_SIZE = 200;
     private static final long QPS_SLEEP_MILLIS = 200;
-    private static final int CHAT_HISTORY_TIMEOUT_SECONDS = 20;
+    private static final int CHAT_HISTORY_TIMEOUT_SECONDS = 120;
 
     /* ============================== 依赖与状态 ============================== */
 
@@ -521,9 +521,6 @@ public class ClientManager {
         return "";
     }
 
-    /**
-     * 异步拉取历史消息（分页 + QPS 控制）
-     */
     private void fetchHistoryMessagesAsync(Client client, String phone, TdApi.Chat chat, long startMessageId, int count) {
         long chatId = chat.id;
         int totalFetched = 0;
@@ -591,7 +588,7 @@ public class ClientManager {
                     }
 
                     log.info("[拉取历史] {} ({}) 本页获取 {} 条，累计 {} / {}", 
-                        chat.title, chatId, messages.length, totalFetched, 1000);
+                        chat.title, chatId, messages.length, totalFetched, count);
 
                     // 更新下一页起始位置
                     fromMessageId = messages[messages.length - 1].id;
