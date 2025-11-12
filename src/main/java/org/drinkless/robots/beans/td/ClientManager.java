@@ -1,5 +1,6 @@
 package org.drinkless.robots.beans.td;
 
+import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.drinkless.robots.beans.view.search.SearchBean;
@@ -8,16 +9,19 @@ import org.drinkless.robots.config.SelfException;
 import org.drinkless.robots.database.entity.Account;
 import org.drinkless.robots.database.entity.AccountWatch;
 import org.drinkless.robots.database.enums.AccountStatus;
+import org.drinkless.robots.database.enums.SourceTypeEnum;
 import org.drinkless.robots.database.service.AccountService;
 import org.drinkless.robots.database.service.AccountWatchService;
 import org.drinkless.robots.database.service.SearchService;
 import org.drinkless.robots.helper.ContentFilter;
 import org.drinkless.robots.helper.MessageConverter;
+import org.drinkless.robots.helper.StrHelper;
 import org.drinkless.tdlib.Client;
 import org.drinkless.tdlib.TdApi;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.Resource;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
@@ -457,7 +461,7 @@ public class ClientManager {
             if (result instanceof TdApi.Chat chat) {
                 String phone = getPhoneByClient(client);
                 log.info("[拉取历史] 找到聊天: {} ({}), 开始拉取历史消息", chat.title, chat.id);
-                fetchHistoryMessages(client, phone, chat, count);
+                fetchHistoryMessages(client, phone, chat, telegramLink, count);
             } else if (result instanceof TdApi.Error error) {
                 log.error("[拉取历史] 查找聊天失败: {}", error.message);
             }
@@ -470,24 +474,25 @@ public class ClientManager {
      * @param client TDLib 客户端
      * @param phone  客户端对应的手机号
      * @param chat   聊天对象
+     * @param telegramLink Telegram链接
      * @param count  条数
      */
-    private void fetchHistoryMessages(Client client, String phone, TdApi.Chat chat, int count) {
+    private void fetchHistoryMessages(Client client, String phone, TdApi.Chat chat, String telegramLink, int count) {
         // 如果是超级群组,提前获取并缓存 Supergroup 信息
         if (chat.type instanceof TdApi.ChatTypeSupergroup supergroupType) {
             fetchAndCacheSupergroup(client, supergroupType.supergroupId, supergroup -> {
                 log.info("[拉取历史] 群组 username: {}", extractUsernameFromSupergroup(supergroup));
-                startFetchTask(client, phone, chat, count);
+                startFetchTask(client, phone, chat, telegramLink, count);
             });
         } else {
-            startFetchTask(client, phone, chat, count);
+            startFetchTask(client, phone, chat, telegramLink, count);
         }
     }
 
     /**
      * 启动拉取任务
      */
-    private void startFetchTask(Client client, String phone, TdApi.Chat chat, int count) {
+    private void startFetchTask(Client client, String phone, TdApi.Chat chat, String telegramLink, int count) {
         long chatId = chat.id;
         
         // 查询是否已有拉取记录
@@ -505,7 +510,7 @@ public class ClientManager {
             startFromMessageId = 0;
         }
 
-        CompletableFuture.runAsync(() -> fetchHistoryMessagesAsync(client, phone, chat, startFromMessageId, count));
+        CompletableFuture.runAsync(() -> fetchHistoryMessagesAsync(client, phone, chat, telegramLink, startFromMessageId, count));
     }
 
     /**
@@ -521,8 +526,13 @@ public class ClientManager {
         return "";
     }
 
-    private void fetchHistoryMessagesAsync(Client client, String phone, TdApi.Chat chat, long startMessageId, int count) {
+    private void fetchHistoryMessagesAsync(Client client, String phone, TdApi.Chat chat, String telegramLink, long startMessageId, int count) {
         long chatId = chat.id;
+        
+        // ==================== 1. 先保存群组/频道本身的记录 ====================
+        saveChannelOrGroupRecord(chat, telegramLink);
+        
+        // ==================== 2. 开始拉取历史消息 ====================
         int totalFetched = 0;
         long fromMessageId = startMessageId;
         java.util.List<SearchBean> searchBeans = new java.util.ArrayList<>();
@@ -661,5 +671,50 @@ public class ClientManager {
             }
         }
         return link;
+    }
+
+    /**
+     * 保存群组/频道本身的记录到 Elasticsearch
+     * <p>
+     * 在拉取历史消息之前，先将群组/频道作为一条记录保存到ES
+     * </p>
+     *
+     * @param chat Chat对象
+     * @param telegramLink Telegram链接
+     */
+    private void saveChannelOrGroupRecord(TdApi.Chat chat, String telegramLink) {
+        try {
+            // 1. 判断类型：群组还是频道
+            SourceTypeEnum type;
+            if (chat.type instanceof TdApi.ChatTypeSupergroup supergroupType) {
+                TdApi.Supergroup supergroup = supergroupCache.get(supergroupType.supergroupId);
+                if (Objects.nonNull(supergroup) && supergroup.isChannel) {
+                    type = SourceTypeEnum.CHANNEL; // 频道
+                } else {
+                    type = SourceTypeEnum.GROUP; // 群组
+                }
+            } else {
+                // 非超级群组，默认为群组
+                type = SourceTypeEnum.GROUP;
+            }
+            String subscribers = null;
+            if (chat.type instanceof TdApi.ChatTypeSupergroup supergroupType) {
+                TdApi.Supergroup supergroup = supergroupCache.get(supergroupType.supergroupId);
+                if (Objects.nonNull(supergroup) && supergroup.memberCount > 0) {
+                    subscribers = StrHelper.formatMemberCount(supergroup.memberCount);
+                }
+            }
+            SearchBean bean = new SearchBean()
+                .setId(UUID.fastUUID().toString(true)) // 使用UUID，不带下划线
+                .setType(type)
+                .setSourceName(chat.title)
+                .setSourceUrl(telegramLink)
+                .setSubscribers(subscribers)
+                .setCollectTime(LocalDateTime.now())
+                .setMarked(false); // 忽略标记字段，设置为false
+            searchService.save(bean);
+        } catch (Exception e) {
+            log.error("[群组记录] 保存失败: {}", chat.title, e);
+        }
     }
 }

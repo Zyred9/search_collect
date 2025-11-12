@@ -1,7 +1,6 @@
 package org.drinkless.robots.helper;
 
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.json.JSONUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.drinkless.robots.beans.view.search.SearchBean;
 import org.drinkless.robots.database.enums.SourceTypeEnum;
@@ -138,21 +137,33 @@ public class MessageConverter {
             sourceName = mt.text != null && mt.text.text != null ? mt.text.text : "";
         } else {
             // 媒体类型提取 caption
-            TdApi.FormattedText caption = null;
+            String caption = "";
             if (content instanceof TdApi.MessagePhoto mp) {
-                caption = mp.caption;
+                caption = mp.caption.text;
             } else if (content instanceof TdApi.MessageVideo mv) {
-                caption = mv.caption;
+                if (StrUtil.isNotBlank(mv.caption.text)) {
+                    caption = mv.caption.text;
+                } else {
+                    caption = mv.video.fileName;
+                }
             } else if (content instanceof TdApi.MessageDocument md) {
-                caption = md.caption;
+                if (StrUtil.isNotBlank(md.caption.text)) {
+                    caption = md.caption.text;
+                } else {
+                    caption = md.document.fileName;
+                }
             } else if (content instanceof TdApi.MessageAudio ma) {
-                caption = ma.caption;
+                if (StrUtil.isNotBlank(ma.caption.text)) {
+                    caption = ma.caption.text;
+                } else {
+                    caption = ma.audio.fileName;
+                }
             } else if (content instanceof TdApi.MessageVoiceNote mvn) {
-                caption = mvn.caption;
+                caption = mvn.caption.text;
             } else if (content instanceof TdApi.MessageAnimation man) {
-                caption = man.caption;
+                caption = man.caption.text;
             }
-            sourceName = caption != null && caption.text != null ? caption.text : "";
+            sourceName = caption;
         }
         
         // 限制长度并截断
