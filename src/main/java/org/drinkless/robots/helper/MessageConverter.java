@@ -32,7 +32,7 @@ public class MessageConverter {
     private static final String TELEGRAM_BASE_URL = "https://t.me";
     
     /** source_name 字段最大长度限制 */
-    private static final int MAX_SOURCE_NAME_LENGTH = 26;
+    private static final int MAX_SOURCE_NAME_LENGTH = 20;
 
     /**
      * 将 TDLib 消息转换为 SearchBean（带 Supergroup 信息）
