@@ -79,7 +79,7 @@ public class ContentFilter {
             log.warn("[内容过滤] 检测到敏感关键词，chatId={}, msgId={}, content={}", 
                 searchBean.getChatId(), searchBean.getMessageId(), 
                 StrUtil.brief(content, 50));
-            return false;
+            return true;
         }
 
         // 3. 语言过滤（仅保留中文）
