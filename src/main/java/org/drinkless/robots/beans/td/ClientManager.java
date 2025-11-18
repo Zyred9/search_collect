@@ -596,10 +596,6 @@ public class ClientManager {
                     if (filteredCount > 0) {
                         log.info("[内容过滤] {} ({}) 本页过滤 {} 条消息", chat.title, chatId, filteredCount);
                     }
-
-                    log.info("[拉取历史] {} ({}) 本页获取 {} 条，累计 {} / {}", 
-                        chat.title, chatId, messages.length, totalFetched, count);
-
                     // 更新下一页起始位置
                     fromMessageId = messages[messages.length - 1].id;
 
@@ -686,8 +682,10 @@ public class ClientManager {
         try {
             // 1. 判断类型：群组还是频道
             SourceTypeEnum type;
+            TdApi.Supergroup supergroup = null;
+            
             if (chat.type instanceof TdApi.ChatTypeSupergroup supergroupType) {
-                TdApi.Supergroup supergroup = supergroupCache.get(supergroupType.supergroupId);
+                supergroup = supergroupCache.get(supergroupType.supergroupId);
                 if (Objects.nonNull(supergroup) && supergroup.isChannel) {
                     type = SourceTypeEnum.CHANNEL; // 频道
                 } else {
@@ -697,13 +695,26 @@ public class ClientManager {
                 // 非超级群组，默认为群组
                 type = SourceTypeEnum.GROUP;
             }
+
+            // 2. 获取订阅人数
             String subscribers = null;
-            if (chat.type instanceof TdApi.ChatTypeSupergroup supergroupType) {
-                TdApi.Supergroup supergroup = supergroupCache.get(supergroupType.supergroupId);
-                if (Objects.nonNull(supergroup) && supergroup.memberCount > 0) {
-                    subscribers = StrHelper.formatMemberCount(supergroup.memberCount);
+            if (Objects.nonNull(supergroup) && supergroup.memberCount > 0) {
+                subscribers = StrHelper.formatMemberCount(supergroup.memberCount);
+            }
+
+            // 3. 判断是否为受限内容（18禁）
+            boolean isRestricted = false;
+            if (Objects.nonNull(supergroup)) {
+                // 检查群组/频道级别的敏感内容标记
+                if (supergroup.hasSensitiveContent) {
+                    isRestricted = true;
+                }
+                if (StrUtil.isNotBlank(supergroup.restrictionReason)) {
+                    isRestricted = true;
                 }
             }
+
+            // 4. 构建 SearchBean
             SearchBean bean = new SearchBean()
                 .setId(UUID.fastUUID().toString(true)) // 使用UUID，不带下划线
                 .setType(type)
@@ -711,7 +722,9 @@ public class ClientManager {
                 .setSourceUrl(telegramLink)
                 .setSubscribers(subscribers)
                 .setCollectTime(LocalDateTime.now())
-                .setMarked(false); // 忽略标记字段，设置为false
+                .setMarked(isRestricted); // 设置受限标记
+
+            // 5. 保存到 ES
             searchService.save(bean);
         } catch (Exception e) {
             log.error("[群组记录] 保存失败: {}", chat.title, e);

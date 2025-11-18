@@ -81,6 +81,9 @@ public class MessageConverter {
         bean.setMessageId(message.id >> 20);
         bean.setCollectTime(convertTimestamp(message.date));
         
+        // 判断是否为受限内容（18禁）
+        bean.setMarked(isRestrictedContent(message, supergroup));
+        
         // 媒体资源特有字段
         extractMediaInfo(message.content, bean);
         
@@ -210,6 +213,24 @@ public class MessageConverter {
         }
         // 私密群组没有公开链接
         return "";
+    }
+
+    private static boolean isRestrictedContent(TdApi.Message message, TdApi.Supergroup supergroup) {
+        // 1. 检查群组/频道级别的敏感内容标记
+        if (Objects.nonNull(supergroup)) {
+            if (supergroup.hasSensitiveContent) {
+                return true;
+            }
+            if (StrUtil.isNotBlank(supergroup.restrictionReason)) {
+                return true;
+            }
+        }
+        
+        // 2. 检查消息级别的敏感内容标记
+        if (message.hasSensitiveContent) {
+            return true;
+        }
+        return StrUtil.isNotBlank(message.restrictionReason);
     }
     
     private static String extractUsername(TdApi.Supergroup supergroup) {
