@@ -43,4 +43,6 @@ public interface SearchService {
      * @throws Exception 文件读取或解析失败时抛出异常
      */
     int parseAndSaveTxtFile(MultipartFile file) throws Exception;
+
+    long count(long id);
 }

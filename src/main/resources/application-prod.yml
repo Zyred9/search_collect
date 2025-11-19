@@ -32,20 +32,14 @@ spring:
     database: 0
     host: localhost
     port: 6379
-  # Elasticsearch 配置
+    password: Qj683k2^11299%nkjb
   elasticsearch:
-    # ES 服务器地址（支持多节点配置）
     uris:
       - http://127.0.0.1:9200
-    # 认证信息
     username: elastic
     password: umEjOIAMYkf3vPq9YEaB
-    # 连接超时时间（毫秒）
     connection-timeout: 5000
-    # Socket 超时时间（毫秒）
     socket-timeout: 60000
-
-  # Spring Data Elasticsearch 配置
   data:
     elasticsearch:
       repositories:
@@ -53,7 +47,6 @@ spring:
 
 logging:
   level:
-    com.search.robots: info
-    # ES 日志级别（生产环境建议 warn，开发环境可用 info）
+    org.drinkless.robots: info
     org.springframework.data.elasticsearch: info
     org.elasticsearch.client: info

@@ -18,8 +18,9 @@ import java.util.concurrent.TimeUnit;
 public class ThreadHelper {
 
     static final ThreadPoolExecutor EX = ExecutorBuilder.create()
-            .setCorePoolSize(2)
+            .setCorePoolSize(20)  // 提升核心线程数,支持20个并发任务
             .setMaxPoolSize(100)
+            .setKeepAliveTime(60L, TimeUnit.SECONDS)  // 空闲线程60秒后回收
             .setThreadFactory(ThreadFactoryBuilder.create()
                     .setNamePrefix("temp-thread-")
                     .build())

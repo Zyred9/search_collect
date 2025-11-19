@@ -19,6 +19,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * 搜索服务实现类
@@ -101,5 +102,11 @@ public class SearchServiceImpl implements SearchService {
         log.info("[TXT解析] 文件处理完成: {}, 成功保存 {} 条记录", filename, searchBeans.size());
 
         return searchBeans.size();
+    }
+
+    @Override
+    public long count(long id) {
+        Optional<SearchBean> optional = this.searchRepository.findById(String.valueOf(id));
+        return optional.stream().count();
     }
 }

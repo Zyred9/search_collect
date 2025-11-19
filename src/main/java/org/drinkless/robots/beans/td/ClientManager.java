@@ -305,6 +305,17 @@ public class ClientManager {
 
     private void handleAuthorizedReady(Client client, String phone) {
         authStatusMap.put(phone, true);
+        
+        // 关键配置：忽略敏感内容限制，允许访问18+群组
+        client.send(new TdApi.SetOption("ignore_sensitive_content_restrictions", 
+            new TdApi.OptionValueBoolean(true)), result -> {
+            if (result instanceof TdApi.Ok) {
+                log.info("[登录] 小号 {} 已启用敏感内容访问权限", phone);
+            } else if (result instanceof TdApi.Error error) {
+                log.warn("[登录] 小号 {} 设置敏感内容权限失败: {}", phone, error.message);
+            }
+        });
+        
         client.send(new TdApi.GetMe(), result -> {
             if (result instanceof TdApi.User user) {
                 accountService.updateTelegramInfo(
@@ -632,14 +643,11 @@ public class ClientManager {
             }
         }
 
-        // 保存剩余的消息
         if (!searchBeans.isEmpty()) {
             searchService.batchSave(searchBeans);
         }
         log.info("[拉取历史] {} ({}) 拉取任务完成，共保存 {} 条有效消息", chat.title, chatId, totalFetched);
 
-        // ==================== 2. 保存群组/频道本身的记录 ====================
-        // 如果没有获取到创建时间，使用当前时间
         LocalDateTime finalCreationTime = Objects.nonNull(groupCreationTime) ? groupCreationTime : LocalDateTime.now();
         Integer number = this.saveChannelOrGroupRecord(chat, telegramLink, finalCreationTime);
 
@@ -704,6 +712,9 @@ public class ClientManager {
 
     private Integer saveChannelOrGroupRecord(TdApi.Chat chat, String telegramLink, LocalDateTime creationTime) {
         try {
+
+            long exists = this.searchService.count(chat.id);
+
             // 1. 判断类型：群组还是频道
             SourceTypeEnum type;
             TdApi.Supergroup supergroup = null;
@@ -735,7 +746,7 @@ public class ClientManager {
                 }
             }
             SearchBean bean = new SearchBean()
-                .setId(UUID.fastUUID().toString(true))
+                .setId(String.valueOf(chat.id))
                 .setType(type)
                 .setSourceName(chat.title)
                 .setSourceUrl(telegramLink)
@@ -746,11 +757,11 @@ public class ClientManager {
             // 如果获取到创建时间,可以打印日志或存储到其他字段
             if (Objects.nonNull(creationTime)) {
                 log.info("[群组创建时间] {} 的创建时间约为: {}", chat.title, creationTime);
-                // TODO: 如果需要存储创建时间,需要在SearchBean中添加对应字段
-                // bean.setCreationTime(creationTime);
             }
 
-            searchService.save(bean);
+            if (exists <= 0) {
+                searchService.save(bean);
+            }
             return number;
         } catch (Exception e) {
             log.error("[群组记录] 保存失败: {}", chat.title, e);
