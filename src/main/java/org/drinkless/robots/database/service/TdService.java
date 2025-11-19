@@ -14,5 +14,5 @@ public interface TdService {
 
     boolean code(String phone, String code);
 
-    void history(String link, int count);
+    void history(String link, Long chatId, int count);
 }

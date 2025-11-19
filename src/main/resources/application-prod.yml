@@ -28,7 +28,10 @@ spring:
     username: root
     password: Qj683k2^11299%nkjb
     url: jdbc:mysql://127.0.0.1:3306/kuaisou_ai_bot?useUnicode=true&characterEncoding=utf8&autoReconnect=true&serverTimezone=Asia/Shanghai&useSSL=false&nullCatalogMeansCurrent=true
-
+  redis:
+    database: 0
+    host: localhost
+    port: 6379
   # Elasticsearch 配置
   elasticsearch:
     # ES 服务器地址（支持多节点配置）

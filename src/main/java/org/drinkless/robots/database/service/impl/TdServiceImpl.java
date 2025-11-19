@@ -47,7 +47,7 @@ public class TdServiceImpl implements TdService {
     }
 
     @Override
-    public void history(String link, int count) {
+    public void history(String link, Long chatId, int count) {
         this.clientManager.fetchHistoryFromLink(link, count);
     }
 
