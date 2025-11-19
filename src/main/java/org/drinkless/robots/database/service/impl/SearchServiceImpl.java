@@ -59,8 +59,8 @@ public class SearchServiceImpl implements SearchService {
         }
         try {
             this.searchRepository.save(searchBean);
-            Collect collect = BeanUtil.copyProperties(searchBean, Collect.class);
-            this.collectService.save(collect);
+//            Collect collect = BeanUtil.copyProperties(searchBean, Collect.class);
+//            this.collectService.save(collect);
             log.debug("[ES保存] 保存文档成功 id={}", searchBean.getId());
         } catch (Exception e) {
             log.error("[ES保存] 保存文档失败 id={}", searchBean.getId(), e);
