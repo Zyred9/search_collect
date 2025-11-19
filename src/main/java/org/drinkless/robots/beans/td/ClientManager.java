@@ -1,6 +1,5 @@
 package org.drinkless.robots.beans.td;
 
-import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.drinkless.robots.beans.view.async.AsyncBean;
@@ -542,7 +541,9 @@ public class ClientManager {
 
     private void fetchHistoryMessagesAsync(Client client, String phone, TdApi.Chat chat, String telegramLink, long lastProcessedMessageId, int count) {
         long chatId = chat.id;
-        
+
+        Integer number = this.saveChannelOrGroupRecord(chat, telegramLink);
+
         // ==================== 1. 开始拉取历史消息 ====================
         int totalFetched = 0;
         long fromMessageId = 0; // 总是从最新消息开始
@@ -564,50 +565,29 @@ public class ClientManager {
                         log.info("[拉取历史] {} ({}) 历史消息已全部拉取，共 {} 条", chat.title, chatId, totalFetched);
                         break;
                     }
-
-                    // 转换并收集消息
-                    int filteredCount = 0; // 本页被过滤的消息数
                     for (TdApi.Message message : messages) {
-                        // 记录最早消息的时间作为群组创建时间
                         LocalDateTime messageTime = convertUnixTimestampToLocalDateTime(message.date);
                         if (Objects.isNull(groupCreationTime) || messageTime.isBefore(groupCreationTime)) {
                             groupCreationTime = messageTime;
                         }
-                        
-                        // 如果消息ID小于等于已处理的最大ID，说明已经处理过了，停止拉取
                         if (lastProcessedMessageId > 0 && message.id <= lastProcessedMessageId) {
                             log.info("[拉取历史] {} ({}) 遇到已处理消息 ID {}，停止拉取", chat.title, chatId, message.id);
                             totalFetched = count; // 强制退出外层循环
                             break;
                         }
-                        
                         if (totalFetched >= count) {
                             break;
                         }
-
-                        // 如果是超级群组,获取 Supergroup 信息以提取 username
                         TdApi.Supergroup supergroup = null;
                         if (chat.type instanceof TdApi.ChatTypeSupergroup supergroupType) {
                             supergroup = supergroupCache.get(supergroupType.supergroupId);
                         }
-
                         SearchBean searchBean = MessageConverter.convertToSearchBean(message, chat, supergroup);
-                        
                         if (Objects.nonNull(searchBean)) {
-                            // 内容过滤：检测诈骗机器人、敏感词、非中文内容
-                            if (ContentFilter.shouldFilter(searchBean)) {
-                                filteredCount++;
-                                // 更新最后处理的消息 ID（即使被过滤也要记录，避免重复检测）
-                                accountWatchService.updateLastMessage(phone, chatId, message.id);
-                                continue; // 跳过被过滤的消息
-                            }
-                            
                             searchBeans.add(searchBean);
                             totalFetched++;
                         }
-
-                        // 更新最后处理的消息 ID
-                        accountWatchService.updateLastMessage(phone, chatId, message.id);
+                        this.accountWatchService.updateLastMessage(phone, chatId, message.id);
                     }
 
                     // 批量保存到 ES（每 50 条保存一次，减少 IO）
@@ -615,28 +595,15 @@ public class ClientManager {
                         searchService.batchSave(searchBeans);
                         searchBeans.clear();
                     }
-                    
-                    // 记录过滤统计
-                    if (filteredCount > 0) {
-                        log.info("[内容过滤] {} ({}) 本页过滤 {} 条消息", chat.title, chatId, filteredCount);
-                    }
-                    
-                    // 如果遇到已处理的消息，退出循环
                     if (totalFetched >= count) {
                         break;
                     }
-                    
-                    // 更新下一页起始位置（使用本页最后一条消息ID）
                     fromMessageId = messages[messages.length - 1].id;
-
-                    // QPS 控制：每页延迟 200ms
                     Thread.sleep(QPS_SLEEP_MILLIS);
-
                 } else if (obj instanceof TdApi.Error error) {
                     log.error("[拉取历史] {} ({}) 拉取失败: {}", chat.title, chatId, error.message);
                     break;
                 }
-
             } catch (Exception e) {
                 log.error("[拉取历史] {} ({}) 拉取异常，已获取 {} 条", chat.title, chatId, totalFetched, e);
                 break;
@@ -649,7 +616,7 @@ public class ClientManager {
         log.info("[拉取历史] {} ({}) 拉取任务完成，共保存 {} 条有效消息", chat.title, chatId, totalFetched);
 
         LocalDateTime finalCreationTime = Objects.nonNull(groupCreationTime) ? groupCreationTime : LocalDateTime.now();
-        Integer number = this.saveChannelOrGroupRecord(chat, telegramLink, finalCreationTime);
+
 
         AsyncBean asyncBean = AsyncBean.buildChat(
                 new Included()
@@ -710,10 +677,10 @@ public class ClientManager {
         return link;
     }
 
-    private Integer saveChannelOrGroupRecord(TdApi.Chat chat, String telegramLink, LocalDateTime creationTime) {
+    private Integer saveChannelOrGroupRecord(TdApi.Chat chat, String telegramLink) {
         try {
 
-            long exists = this.searchService.count(chat.id);
+            boolean exists = this.searchService.exists(chat.id);
 
             // 1. 判断类型：群组还是频道
             SourceTypeEnum type;
@@ -754,12 +721,7 @@ public class ClientManager {
                 .setCollectTime(LocalDateTime.now())
                 .setMarked(isRestricted);
 
-            // 如果获取到创建时间,可以打印日志或存储到其他字段
-            if (Objects.nonNull(creationTime)) {
-                log.info("[群组创建时间] {} 的创建时间约为: {}", chat.title, creationTime);
-            }
-
-            if (exists <= 0) {
+            if (!exists) {
                 searchService.save(bean);
             }
             return number;

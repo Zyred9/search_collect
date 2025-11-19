@@ -44,5 +44,5 @@ public interface SearchService {
      */
     int parseAndSaveTxtFile(MultipartFile file) throws Exception;
 
-    long count(long id);
+    boolean exists(long id);
 }
