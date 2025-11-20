@@ -32,7 +32,7 @@ public class SearchBean {
     // ==================== 资源基础信息 ====================
 
     /** 资源名称(核心搜索字段,使用标准分词器) **/
-    @Field(type = FieldType.Text, analyzer = "ik_smart")
+    @Field(type = FieldType.Text, analyzer = "ik_max_word")
     private String sourceName;
 
     /** 资源链接(Telegram消息链接) **/
