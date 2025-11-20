@@ -468,22 +468,15 @@ public class ClientManager {
 
     /* ============================== 拉取历史消息 API ============================== */
 
-    public void fetchHistoryFromLink(String telegramLink, int count) {
-        // 1. 解析链接获取 username
+    public String fetchHistoryFromLink(String telegramLink, Long chatId, int count) {
         String username = parseTelegramLink(telegramLink);
         if (StrUtil.isBlank(username)) {
-            log.error("[拉取历史] 无效的 Telegram 链接: {}", telegramLink);
-            return;
+            return "无效的链接";
         }
-
-        // 2. 选择一个可用的 Client
         Client client = selectAvailableClient();
         if (Objects.isNull(client)) {
-            log.error("[拉取历史] 没有可用的已登录客户端");
-            return;
+            return "没有可用的已登录客户端";
         }
-
-        // 3. 根据 username 搜索聊天
         log.info("[拉取历史] 开始查找聊天: {}", username);
         client.send(new TdApi.SearchPublicChat(username), result -> {
             if (result instanceof TdApi.Chat chat) {
@@ -493,6 +486,7 @@ public class ClientManager {
                 log.error("[拉取历史] 查找聊天失败: {}", error.message);
             }
         });
+        return "开始查找聊天";
     }
 
     /**

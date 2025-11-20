@@ -48,8 +48,8 @@ public class TdController {
                                    @RequestParam("chatId") Long chatId,
                                    @RequestParam(value = "count", required = false, defaultValue = "3000") int count) {
         try {
-            this.tdService.history(link, chatId, count);
-            return Result.success("历史消息拉取任务已启动，请稍后查看");
+            String message = this.tdService.history(link, chatId, count);
+            return Result.success(message);
         } catch (Exception e) {
             return Result.error("拉取失败: " + e.getMessage());
         }
