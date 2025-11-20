@@ -468,24 +468,33 @@ public class ClientManager {
 
     /* ============================== 拉取历史消息 API ============================== */
 
-    public String fetchHistoryFromLink(String telegramLink, Long chatId, int count) {
-        String username = parseTelegramLink(telegramLink);
-        if (StrUtil.isBlank(username)) {
-            return "无效的链接";
-        }
+    public String fetchHistoryFromLink(String link, Long chatId, int count) {
+
         Client client = selectAvailableClient();
         if (Objects.isNull(client)) {
             return "没有可用的已登录客户端";
         }
-        log.info("[拉取历史] 开始查找聊天: {}", username);
-        client.send(new TdApi.SearchPublicChat(username), result -> {
-            if (result instanceof TdApi.Chat chat) {
-                String phone = getPhoneByClient(client);
-                fetchHistoryMessages(client, phone, chat, telegramLink, count);
-            } else if (result instanceof TdApi.Error error) {
-                log.error("[拉取历史] 查找聊天失败: {}", error.message);
+
+        if (StrUtil.isNotEmpty(link)) {
+            String username = parseTelegramLink(link);
+            if (StrUtil.isBlank(username)) {
+                return "无效的链接";
             }
-        });
+            log.info("[拉取历史] 开始查找聊天: {}", username);
+            client.send(new TdApi.SearchPublicChat(username), result -> {
+                if (result instanceof TdApi.Chat chat) {
+                    String phone = getPhoneByClient(client);
+                    fetchHistoryMessages(client, phone, chat, link, count);
+                } else if (result instanceof TdApi.Error error) {
+                    log.error("[拉取历史] 查找聊天失败: {}", error.message);
+                }
+            });
+        }
+
+        if (StrUtil.isEmpty(link) && Objects.nonNull(chatId)) {
+
+        }
+
         return "开始查找聊天";
     }
 
