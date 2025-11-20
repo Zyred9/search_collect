@@ -468,20 +468,20 @@ public class ClientManager {
     /* ============================== 拉取历史消息 API ============================== */
 
     /**
-     * 智能拉取历史消息（同时支持公开群组链接和私密群组chatId）
+     * 智能拉取历史消息（同时支持公开群组链接和私密群组邀请链接）
      * <pre>
      * 使用场景:
-     * 1. 公开群组: 传入 link，chatId 可为 null
-     * 2. 私密群组: 传入 chatId，link 可为空
-     * 3. 优先级: chatId > link
+     * 1. 公开群组: 传入 link (支持 @username 或 t.me/username)
+     * 2. 私密群组: 传入 inviteLink (格式: t.me/+xxxxx 或 t.me/joinchat/xxxxx)
+     * 3. 优先级: inviteLink > link
      * </pre>
      * 
-     * @param link Telegram公开链接（支持 @username 或 t.me/username）
-     * @param chatId 群组ID（负数，私密群组必填）
+     * @param link 公开群组链接（支持 @username 或 t.me/username）
+     * @param inviteLink 私密群组邀请链接（格式: t.me/+xxxxx 或 t.me/joinchat/xxxxx）
      * @param count 拉取消息数量
      * @return 错误信息，成功返回 "开始查找聊天"
      */
-    public String fetchHistoryFromLink(String link, Long chatId, int count) {
+    public String fetchHistoryFromLink(String link, String inviteLink, int count) {
         Client client = selectAvailableClient();
         if (Objects.isNull(client)) {
             return "没有可用的已登录客户端";
@@ -489,24 +489,47 @@ public class ClientManager {
 
         String phone = getPhoneByClient(client);
 
-        // ==================== 方式1: 通过 chatId 拉取（私密群组） ====================
-        if (Objects.nonNull(chatId) && chatId < 0) {
-            log.info("[拉取历史-私密] 账号 {} 开始获取群组信息: chatId={}", phone, chatId);
+        // ==================== 方式1: 通过邀请链接拉取（私密群组） ====================
+        if (StrUtil.isNotBlank(inviteLink)) {
+            log.info("[拉取历史-私密] 账号 {} 使用邀请链接加入: {}", phone, inviteLink);
             
-            client.send(new TdApi.GetChat(chatId), result -> {
-                if (result instanceof TdApi.Chat chat) {
-                    log.info("[拉取历史-私密] 找到群组: {} (ID: {})", chat.title, chat.id);
-                    // 私密群组使用 chatId 作为标识（如果有 link 则使用 link）
-                    String identifier = StrUtil.isNotBlank(link) ? link : "chatId:" + chatId;
-                    fetchHistoryMessages(client, phone, chat, identifier, count);
+            // 通过邀请链接加入群组
+            client.send(new TdApi.JoinChatByInviteLink(inviteLink), joinResult -> {
+                if (joinResult instanceof TdApi.Chat chat) {
+                    log.info("[拉取历史-私密] 成功加入群组: {} (ID: {})", chat.title, chat.id);
+                    // 新加入的群组，拉取完成后需要退出
+                    fetchHistoryMessages(client, phone, chat, inviteLink, count, true);
                     
-                } else if (result instanceof TdApi.Error error) {
-                    log.error("[拉取历史-私密] 获取群组 {} 失败: {} (可能原因: 未加入该群组/无权限/群组不存在)", 
-                        chatId, error.message);
+                } else if (joinResult instanceof TdApi.Error error) {
+                    // 可能已经是成员，尝试通过 checkChatInviteLink 获取 chatId
+                    log.warn("[拉取历史-私密] 加入失败: {}，尝试检查邀请链接", error.message);
+                    
+                    client.send(new TdApi.CheckChatInviteLink(inviteLink), checkResult -> {
+                        if (checkResult instanceof TdApi.ChatInviteLinkInfo linkInfo) {
+                            if (linkInfo.chatId != 0) {
+                                // 已经是成员，直接获取 Chat 并拉取
+                                log.info("[拉取历史-私密] 检测到已是成员，chatId: {}", linkInfo.chatId);
+                                
+                                client.send(new TdApi.GetChat(linkInfo.chatId), chatResult -> {
+                                    if (chatResult instanceof TdApi.Chat existingChat) {
+                                        log.info("[拉取历史-私密] 找到已加入的群组: {} (ID: {})", existingChat.title, existingChat.id);
+                                        // 已是成员，不需要退出
+                                        fetchHistoryMessages(client, phone, existingChat, inviteLink, count, false);
+                                    } else if (chatResult instanceof TdApi.Error chatError) {
+                                        log.error("[拉取历史-私密] 获取群组信息失败: {}", chatError.message);
+                                    }
+                                });
+                            } else {
+                                log.error("[拉取历史-私密] 邀请链接有效但无法获取群组信息: {}", linkInfo.title);
+                            }
+                        } else if (checkResult instanceof TdApi.Error checkError) {
+                            log.error("[拉取历史-私密] 检查邀请链接失败: {}", checkError.message);
+                        }
+                    });
                 }
             });
             
-            return "开始查找聊天";
+            return "开始加入群组";
         }
 
         // ==================== 方式2: 通过 link 拉取（公开群组） ====================
@@ -520,7 +543,21 @@ public class ClientManager {
             client.send(new TdApi.SearchPublicChat(username), result -> {
                 if (result instanceof TdApi.Chat chat) {
                     log.info("[拉取历史-公开] 找到群组: {} (ID: {})", chat.title, chat.id);
-                    fetchHistoryMessages(client, phone, chat, link, count);
+                    
+                    // 尝试加入群组（如果未加入）
+                    client.send(new TdApi.JoinChat(chat.id), joinResult -> {
+                        if (joinResult instanceof TdApi.Ok) {
+                            log.info("[拉取历史-公开] 成功加入群组: {} (ID: {})", chat.title, chat.id);
+                            // 新加入的群组，拉取完成后需要退出
+                            fetchHistoryMessages(client, phone, chat, link, count, true);
+                        } else if (joinResult instanceof TdApi.Error joinError) {
+                            // 已经是成员（错误码: CHAT_ADMIN 或 USER_ALREADY_PARTICIPANT）
+                            log.debug("[拉取历史-公开] 加入群组响应: {}", joinError.message);
+                            // 已经是成员，不需要退出
+                            fetchHistoryMessages(client, phone, chat, link, count, false);
+                        }
+                    });
+                    
                 } else if (result instanceof TdApi.Error error) {
                     log.error("[拉取历史-公开] 查找聊天 {} 失败: {}", username, error.message);
                 }
@@ -529,7 +566,7 @@ public class ClientManager {
             return "开始查找聊天";
         }
 
-        return "必须提供 link 或 chatId 中的至少一个参数";
+        return "必须提供 link 或 inviteLink 中的至少一个参数";
     }
 
     /**
@@ -540,20 +577,21 @@ public class ClientManager {
      * @param chat   聊天对象
      * @param telegramLink Telegram链接
      * @param count  条数
+     * @param shouldLeaveAfterFetch 拉取完成后是否退出群组（true=新加入需要退出，false=原本已是成员）
      */
-    private void fetchHistoryMessages(Client client, String phone, TdApi.Chat chat, String telegramLink, int count) {
+    private void fetchHistoryMessages(Client client, String phone, TdApi.Chat chat, String telegramLink, int count, boolean shouldLeaveAfterFetch) {
         // 如果是超级群组,提前获取并缓存 Supergroup 信息
         if (chat.type instanceof TdApi.ChatTypeSupergroup supergroupType) {
-            fetchAndCacheSupergroup(client, supergroupType.supergroupId, a -> startFetchTask(client, phone, chat, telegramLink, count));
+            fetchAndCacheSupergroup(client, supergroupType.supergroupId, a -> startFetchTask(client, phone, chat, telegramLink, count, shouldLeaveAfterFetch));
         } else {
-            startFetchTask(client, phone, chat, telegramLink, count);
+            startFetchTask(client, phone, chat, telegramLink, count, shouldLeaveAfterFetch);
         }
     }
 
     /**
      * 启动拉取任务
      */
-    private void startFetchTask(Client client, String phone, TdApi.Chat chat, String telegramLink, int count) {
+    private void startFetchTask(Client client, String phone, TdApi.Chat chat, String telegramLink, int count, boolean shouldLeaveAfterFetch) {
         long chatId = chat.id;
         
         // 查询是否已有拉取记录
@@ -572,11 +610,11 @@ public class ClientManager {
             lastProcessedMessageId = 0;
         }
 
-        CompletableFuture.runAsync(() -> fetchHistoryMessagesAsync(client, phone, chat, telegramLink, lastProcessedMessageId, count), ThreadHelper::execute);
+        CompletableFuture.runAsync(() -> fetchHistoryMessagesAsync(client, phone, chat, telegramLink, lastProcessedMessageId, count, shouldLeaveAfterFetch), ThreadHelper::execute);
     }
 
 
-    private void fetchHistoryMessagesAsync(Client client, String phone, TdApi.Chat chat, String telegramLink, long lastProcessedMessageId, int count) {
+    private void fetchHistoryMessagesAsync(Client client, String phone, TdApi.Chat chat, String telegramLink, long lastProcessedMessageId, int count, boolean shouldLeaveAfterFetch) {
         long chatId = chat.id;
 
         Integer number = this.saveChannelOrGroupRecord(chat, telegramLink);
@@ -660,6 +698,19 @@ public class ClientManager {
                         .setIndexCreateTime(groupCreationTime)
         );
         AsyncTaskHandler.async(asyncBean);
+        
+        // ==================== 2. 根据标记决定是否退出群组 ====================
+        if (shouldLeaveAfterFetch) {
+            client.send(new TdApi.LeaveChat(chatId), result -> {
+                if (result instanceof TdApi.Ok) {
+                    log.info("[退出群组] 成功退出新加入的群组: {} (ID: {})", chat.title, chatId);
+                } else if (result instanceof TdApi.Error error) {
+                    log.warn("[退出群组] 退出群组 {} ({}) 失败: {}", chat.title, chatId, error.message);
+                }
+            });
+        } else {
+            log.info("[拉取历史] {} ({}) 为已加入群组，保留成员身份", chat.title, chatId);
+        }
     }
 
     /**

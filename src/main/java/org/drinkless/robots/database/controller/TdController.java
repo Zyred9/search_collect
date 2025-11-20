@@ -46,17 +46,23 @@ public class TdController {
     /**
      * 拉取群组历史消息（支持公开群组和私密群组）
      * <pre>
-     * 1. 公开群组: 传 link，chatId 可不传
-     * 2. 私密群组: 传 chatId（负数），link 可不传
-     * 3. 优先级: chatId > link
+     * 参数说明:
+     * - link: 公开群组链接 (支持 @username 或 t.me/username)
+     * - inviteLink: 私密群组邀请链接 (格式: t.me/+xxxxx 或 t.me/joinchat/xxxxx)
+     * - count: 拉取消息数量，默认 3000
+     * 
+     * 使用场景:
+     * 1. 公开群组: 只传 link
+     * 2. 私密群组(已加入): 传 inviteLink (会先尝试通过邀请链接获取群组信息)
+     * 3. 私密群组(未加入): 传 inviteLink (自动加入并拉取)
      * </pre>
      */
     @GetMapping("/history")
     public Result<String> history (@RequestParam(value = "link", required = false) String link,
-                                   @RequestParam(value = "chatId", required = false) Long chatId,
+                                   @RequestParam(value = "inviteLink", required = false) String inviteLink,
                                    @RequestParam(value = "count", required = false, defaultValue = "3000") int count) {
         try {
-            String message = this.tdService.history(link, chatId, count);
+            String message = this.tdService.history(link, inviteLink, count);
             return Result.success(message != null ? message : "历史消息拉取任务已启动");
         } catch (Exception e) {
             return Result.error("拉取失败: " + e.getMessage());
