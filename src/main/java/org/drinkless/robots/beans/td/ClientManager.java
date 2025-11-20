@@ -15,7 +15,6 @@ import org.drinkless.robots.database.service.AccountService;
 import org.drinkless.robots.database.service.AccountWatchService;
 import org.drinkless.robots.database.service.SearchService;
 import org.drinkless.robots.handlers.AsyncTaskHandler;
-import org.drinkless.robots.helper.ContentFilter;
 import org.drinkless.robots.helper.MessageConverter;
 import org.drinkless.robots.helper.StrHelper;
 import org.drinkless.robots.helper.ThreadHelper;
@@ -468,34 +467,69 @@ public class ClientManager {
 
     /* ============================== 拉取历史消息 API ============================== */
 
+    /**
+     * 智能拉取历史消息（同时支持公开群组链接和私密群组chatId）
+     * <pre>
+     * 使用场景:
+     * 1. 公开群组: 传入 link，chatId 可为 null
+     * 2. 私密群组: 传入 chatId，link 可为空
+     * 3. 优先级: chatId > link
+     * </pre>
+     * 
+     * @param link Telegram公开链接（支持 @username 或 t.me/username）
+     * @param chatId 群组ID（负数，私密群组必填）
+     * @param count 拉取消息数量
+     * @return 错误信息，成功返回 "开始查找聊天"
+     */
     public String fetchHistoryFromLink(String link, Long chatId, int count) {
-
         Client client = selectAvailableClient();
         if (Objects.isNull(client)) {
             return "没有可用的已登录客户端";
         }
 
+        String phone = getPhoneByClient(client);
+
+        // ==================== 方式1: 通过 chatId 拉取（私密群组） ====================
+        if (Objects.nonNull(chatId) && chatId < 0) {
+            log.info("[拉取历史-私密] 账号 {} 开始获取群组信息: chatId={}", phone, chatId);
+            
+            client.send(new TdApi.GetChat(chatId), result -> {
+                if (result instanceof TdApi.Chat chat) {
+                    log.info("[拉取历史-私密] 找到群组: {} (ID: {})", chat.title, chat.id);
+                    // 私密群组使用 chatId 作为标识（如果有 link 则使用 link）
+                    String identifier = StrUtil.isNotBlank(link) ? link : "chatId:" + chatId;
+                    fetchHistoryMessages(client, phone, chat, identifier, count);
+                    
+                } else if (result instanceof TdApi.Error error) {
+                    log.error("[拉取历史-私密] 获取群组 {} 失败: {} (可能原因: 未加入该群组/无权限/群组不存在)", 
+                        chatId, error.message);
+                }
+            });
+            
+            return "开始查找聊天";
+        }
+
+        // ==================== 方式2: 通过 link 拉取（公开群组） ====================
         if (StrUtil.isNotEmpty(link)) {
             String username = parseTelegramLink(link);
             if (StrUtil.isBlank(username)) {
                 return "无效的链接";
             }
-            log.info("[拉取历史] 开始查找聊天: {}", username);
+            
+            log.info("[拉取历史-公开] 账号 {} 开始查找聊天: {}", phone, username);
             client.send(new TdApi.SearchPublicChat(username), result -> {
                 if (result instanceof TdApi.Chat chat) {
-                    String phone = getPhoneByClient(client);
+                    log.info("[拉取历史-公开] 找到群组: {} (ID: {})", chat.title, chat.id);
                     fetchHistoryMessages(client, phone, chat, link, count);
                 } else if (result instanceof TdApi.Error error) {
-                    log.error("[拉取历史] 查找聊天失败: {}", error.message);
+                    log.error("[拉取历史-公开] 查找聊天 {} 失败: {}", username, error.message);
                 }
             });
+            
+            return "开始查找聊天";
         }
 
-        if (StrUtil.isEmpty(link) && Objects.nonNull(chatId)) {
-
-        }
-
-        return "开始查找聊天";
+        return "必须提供 link 或 chatId 中的至少一个参数";
     }
 
     /**
@@ -617,9 +651,6 @@ public class ClientManager {
             searchService.batchSave(searchBeans);
         }
         log.info("[拉取历史] {} ({}) 拉取任务完成，共保存 {} 条有效消息", chat.title, chatId, totalFetched);
-
-        LocalDateTime finalCreationTime = Objects.nonNull(groupCreationTime) ? groupCreationTime : LocalDateTime.now();
-
 
         AsyncBean asyncBean = AsyncBean.buildChat(
                 new Included()
