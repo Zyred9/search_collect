@@ -1,5 +1,6 @@
 package org.drinkless.robots.database.service;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
 import org.drinkless.robots.database.entity.Account;
 import org.drinkless.robots.database.enums.AccountStatus;
@@ -35,5 +36,10 @@ public interface AccountService extends IService<Account> {
      */
     void updateTelegramInfo(String phoneNumber, Long telegramId, String username, String nickname, AccountStatus status);
 
+    /**
+     * 分页查询账号列表
+     * 支持按手机号、用户名、状态搜索
+     */
+    Page<Account> getAccountPage(int page, int size, String phone, String username, Integer status);
 
 }

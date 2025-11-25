@@ -107,6 +107,29 @@ public class ClientManager {
         });
     }
 
+    /**
+     * 主动关闭账号，使其下线
+     *
+     * @param phone 小号手机号
+     */
+    public void closeClient(String phone) {
+        Client client = clientMap.get(phone);
+        if (client == null) {
+            log.warn("[下线] 未找到小号 {} 的客户端实例", phone);
+            return;
+        }
+
+        log.info("[下线] 开始关闭小号 {} 的连接", phone);
+        // 发送关闭指令，会触发 AuthorizationStateClosed 事件
+        client.send(new TdApi.Close(), result -> {
+            if (result instanceof TdApi.Ok) {
+                log.info("[下线] 小号 {} 关闭指令发送成功", phone);
+            } else if (result instanceof TdApi.Error error) {
+                log.error("[下线] 小号 {} 关闭失败: {}", phone, error.message);
+            }
+        });
+    }
+
     /* ============================== TDLib 回调处理 ============================== */
 
     private void onSubAccountUpdate(String phone, TdApi.Object object) {

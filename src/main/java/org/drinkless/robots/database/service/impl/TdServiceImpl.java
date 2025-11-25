@@ -47,6 +47,19 @@ public class TdServiceImpl implements TdService {
     }
 
     @Override
+    public boolean offline(String phone) {
+        try {
+            this.clientManager.closeClient(phone);
+            // 主动更新数据库状态为下线
+            this.accountService.updateStatus(phone, AccountStatus.OFFLINE);
+            return true;
+        } catch (Exception ex) {
+            log.error("[下线] 账号 {} 下线失败", phone, ex);
+            return false;
+        }
+    }
+
+    @Override
     public String history(String link, String inviteLink, int count) {
         return this.clientManager.fetchHistoryFromLink(link, inviteLink, count);
     }

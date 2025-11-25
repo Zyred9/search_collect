@@ -1,7 +1,9 @@
 package org.drinkless.robots.database.service.impl;
 
+import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.drinkless.robots.database.entity.Account;
 import org.drinkless.robots.database.enums.AccountStatus;
@@ -83,5 +85,31 @@ public class AccountServiceImpl extends ServiceImpl<AccountMapper, Account> impl
             this.updateById(Account);
         }
 
+    }
+
+    @Override
+    public Page<Account> getAccountPage(int page, int size, String phone, String username, Integer status) {
+        Page<Account> pageParam = new Page<>(page, size);
+        LambdaQueryWrapper<Account> wrapper = Wrappers.lambdaQuery();
+        
+        // 手机号模糊查询
+        if (StrUtil.isNotBlank(phone)) {
+            wrapper.like(Account::getPhone, phone);
+        }
+        
+        // 用户名模糊查询
+        if (StrUtil.isNotBlank(username)) {
+            wrapper.like(Account::getUsername, username);
+        }
+        
+        // 状态精确查询
+        if (status != null) {
+            wrapper.eq(Account::getStatus, AccountStatus.values()[status]);
+        }
+        
+        // 按创建时间倒序
+        wrapper.orderByDesc(Account::getCreatedTime);
+        
+        return this.page(pageParam, wrapper);
     }
 }
