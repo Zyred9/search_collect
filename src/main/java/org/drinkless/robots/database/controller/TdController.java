@@ -1,8 +1,10 @@
 package org.drinkless.robots.database.controller;
 
 
+import cn.hutool.core.collection.CollUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.drinkless.robots.beans.view.base.Result;
+import org.drinkless.robots.beans.view.search.SearchBean;
 import org.drinkless.robots.database.entity.Account;
 import org.drinkless.robots.database.service.AccountService;
 import org.drinkless.robots.database.service.SearchService;
@@ -16,6 +18,8 @@ import org.springframework.web.multipart.MultipartFile;
 import cn.hutool.core.util.StrUtil;
 
 import javax.annotation.Resource;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * TDLib 相关接口控制器
@@ -149,13 +153,13 @@ public class TdController {
      * 返回：分页数据列表、总记录数、当前页码、每页大小
      */
     @GetMapping("/search/page")
-    public Result<PageResult<org.drinkless.robots.beans.view.search.SearchBean>> pageSearch(
+    public Result<PageResult<SearchBean>> pageSearch(
             @RequestParam(value = "pageNum", defaultValue = "1") int pageNum,
             @RequestParam(value = "pageSize", defaultValue = "10") int pageSize,
             @RequestParam(value = "keyword", required = false) String keyword,
             @RequestParam(value = "type", required = false) SourceTypeEnum type
     ) {
-        PageResult<org.drinkless.robots.beans.view.search.SearchBean> result = this.searchService.pageSearch(pageNum, pageSize, keyword, type);
+        PageResult<SearchBean> result = this.searchService.pageSearch(pageNum, pageSize, keyword, type);
         return Result.success(result);
     }
 
@@ -169,15 +173,26 @@ public class TdController {
      * 返回：操作结果
      */
     @PostMapping("/search/audit")
-    public Result<Void> audit(
-            @RequestBody AuditRequest req
-    ) {
-        if (req == null || req.getOperation() == null || cn.hutool.core.collection.CollUtil.isEmpty(req.getIds())) {
+    public Result<Void> audit(@RequestBody AuditRequest req) {
+        if (req == null || req.getOperation() == null || CollUtil.isEmpty(req.getIds())) {
             return Result.error(400, "参数不完整: 需要 operation 与 ids");
         }
         AuditStatusEnum op = req.getOperation();
-        this.searchService.batchAudit(req.getIds(), op, req.getRemark());
-        return Result.success();
+        try {
+            List<Long> chatIds = new ArrayList<>();
+            for (String s : req.getIds()) {
+                try {
+                    chatIds.add(Long.valueOf(s));
+                } catch (NumberFormatException nfe) {
+                    return Result.error(400, "ids必须为chatId数字");
+                }
+            }
+            // 将提交的 ids 视为群组/频道 chatId，按主体同步更新其关联数据
+            this.searchService.batchAuditByChatIds(chatIds, op, req.getRemark());
+            return Result.success();
+        } catch (Exception e) {
+            return Result.error("审核失败: " + e.getMessage());
+        }
     }
 
 }

@@ -10,6 +10,7 @@ import org.drinkless.robots.database.entity.Account;
 import org.drinkless.robots.database.entity.AccountWatch;
 import org.drinkless.robots.database.entity.Included;
 import org.drinkless.robots.database.enums.AccountStatus;
+import org.drinkless.robots.database.enums.AuditStatusEnum;
 import org.drinkless.robots.database.enums.SourceTypeEnum;
 import org.drinkless.robots.database.service.AccountService;
 import org.drinkless.robots.database.service.AccountWatchService;
@@ -637,26 +638,11 @@ public class ClientManager {
             if (StrUtil.isBlank(username)) {
                 return "无效的链接";
             }
-            
             log.info("[拉取历史-公开] 账号 {} 开始查找聊天: {}", phone, username);
             client.send(new TdApi.SearchPublicChat(username), result -> {
                 if (result instanceof TdApi.Chat chat) {
                     log.info("[拉取历史-公开] 找到群组: {} (ID: {})", chat.title, chat.id);
-                    
-                    // 尝试加入群组（如果未加入）
-                    client.send(new TdApi.JoinChat(chat.id), joinResult -> {
-                        if (joinResult instanceof TdApi.Ok) {
-                            log.info("[拉取历史-公开] 成功加入群组: {} (ID: {})", chat.title, chat.id);
-                            // 新加入的群组，拉取完成后需要退出
-                            fetchHistoryMessages(client, phone, chat, link, count, true);
-                        } else if (joinResult instanceof TdApi.Error joinError) {
-                            // 已经是成员（错误码: CHAT_ADMIN 或 USER_ALREADY_PARTICIPANT）
-                            log.debug("[拉取历史-公开] 加入群组响应: {}", joinError.message);
-                            // 已经是成员，不需要退出
-                            fetchHistoryMessages(client, phone, chat, link, count, false);
-                        }
-                    });
-                    
+                    fetchHistoryMessages(client, phone, chat, link, count, true);
                 } else if (result instanceof TdApi.Error error) {
                     log.error("[拉取历史-公开] 查找聊天 {} 失败: {}", username, error.message);
                 }
@@ -808,19 +794,6 @@ public class ClientManager {
                         .setIndexCreateTime(groupCreationTime)
         );
         AsyncTaskHandler.async(asyncBean);
-        
-        // ==================== 2. 根据标记决定是否退出群组 ====================
-        if (shouldLeaveAfterFetch) {
-            client.send(new TdApi.LeaveChat(chatId), result -> {
-                if (result instanceof TdApi.Ok) {
-                    log.info("[退出群组] 成功退出新加入的群组: {} (ID: {})", chat.title, chatId);
-                } else if (result instanceof TdApi.Error error) {
-                    log.warn("[退出群组] 退出群组 {} ({}) 失败: {}", chat.title, chatId, error.message);
-                }
-            });
-        } else {
-            log.info("[拉取历史] {} ({}) 为已加入群组，保留成员身份", chat.title, chatId);
-        }
     }
 
     /**
@@ -907,15 +880,31 @@ public class ClientManager {
                     isRestricted = true;
                 }
             }
+
+            String username = "", url = "";
+            if (Objects.nonNull(supergroup) && supergroup.usernames.activeUsernames.length > 0) {
+                username = supergroup.usernames.activeUsernames[0];
+            }
+            if (StrUtil.isNotBlank(username)) {
+                url = "https://t.me/" + username;
+            }
+
             SearchBean bean = new SearchBean()
                 .setId(String.valueOf(chat.id))
                 .setType(type)
                 .setSourceName(chat.title)
                 .setSourceUrl(telegramLink)
                 .setSubscribers(subscribers)
-                .setCollectTime(LocalDateTime.now())
-                .setMarked(isRestricted);
-
+                .setCollectTime(System.currentTimeMillis())
+                .setMarked(isRestricted)
+                .setAuditStatus(AuditStatusEnum.PENDING)
+                .setAuditRemark("")
+                .setAuditedBy("")
+                .setAuditedAt(System.currentTimeMillis())
+                .setChannelName(StrUtil.nullToEmpty(chat.title))
+                .setChannelUsername(username)
+                .setChannelUrl(url);
+                
             if (!exists) {
                 searchService.save(bean);
             }

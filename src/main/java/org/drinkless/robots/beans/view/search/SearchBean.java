@@ -4,13 +4,13 @@ package org.drinkless.robots.beans.view.search;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.experimental.Accessors;
+import org.drinkless.robots.database.enums.AuditStatusEnum;
 import org.drinkless.robots.database.enums.SourceTypeEnum;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.elasticsearch.annotations.Document;
 import org.springframework.data.elasticsearch.annotations.Field;
 import org.springframework.data.elasticsearch.annotations.FieldType;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 @Setter
@@ -67,9 +67,9 @@ public class SearchBean {
     @Field(type = FieldType.Long)
     private Long messageId;
 
-    /** 收集时间(查询根据此字段降序排序) **/
+    /** 收集时间(查询根据此字段降序排序, epoch millis) **/
     @Field(type = FieldType.Long)
-    private LocalDateTime collectTime;
+    private Long collectTime;
 
     // ==================== 媒体资源特有字段 ====================
 
@@ -95,7 +95,7 @@ public class SearchBean {
 
     /** 审核状态(PENDING/APPROVED/REJECTED) **/
     @Field(type = FieldType.Keyword)
-    private org.drinkless.robots.database.enums.AuditStatusEnum auditStatus;
+    private AuditStatusEnum auditStatus;
 
     /** 审核备注 **/
     @Field(type = FieldType.Text, analyzer = "ik_max_word")
@@ -105,8 +105,8 @@ public class SearchBean {
     @Field(type = FieldType.Keyword)
     private String auditedBy;
 
-    /** 审核时间 **/
+    /** 审核时间 (epoch millis) **/
     @Field(type = FieldType.Long)
-    private LocalDateTime auditedAt;
+    private Long auditedAt;
 
 }

@@ -90,7 +90,7 @@ public class TxtFileParser {
             .setSourceUrl(fullLink)
             .setChannelUsername(channelUsername)
             .setChannelUrl("https://t.me/" + channelUsername)
-            .setCollectTime(LocalDateTime.now());
+            .setCollectTime(System.currentTimeMillis());
 
         // 设置消息 ID 和聊天 ID（如果存在）
         if (StrUtil.isNotBlank(messageIdStr)) {

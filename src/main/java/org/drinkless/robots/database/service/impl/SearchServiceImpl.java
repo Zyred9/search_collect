@@ -5,8 +5,8 @@ import cn.hutool.core.io.IoUtil;
 import cn.hutool.core.util.StrUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.drinkless.robots.beans.view.search.SearchBean;
 import org.drinkless.robots.beans.view.base.PageResult;
+import org.drinkless.robots.beans.view.search.SearchBean;
 import org.drinkless.robots.database.enums.AuditStatusEnum;
 import org.drinkless.robots.database.enums.SourceTypeEnum;
 import org.drinkless.robots.database.repository.SearchRepository;
@@ -17,6 +17,11 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
+import org.elasticsearch.client.RestHighLevelClient;
+import org.elasticsearch.index.reindex.UpdateByQueryRequest;
+import org.elasticsearch.script.Script;
+import org.elasticsearch.script.ScriptType;
+import org.elasticsearch.index.query.QueryBuilders;
 import org.springframework.data.elasticsearch.core.document.Document;
 import org.springframework.data.elasticsearch.core.query.UpdateQuery;
 import org.springframework.stereotype.Service;
@@ -24,10 +29,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.charset.StandardCharsets;
-import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * 搜索服务实现类
@@ -42,6 +47,7 @@ public class SearchServiceImpl implements SearchService {
 
     private final SearchRepository searchRepository;
     private final ElasticsearchOperations elasticsearchOperations;
+    private final RestHighLevelClient restHighLevelClient;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -108,15 +114,20 @@ public class SearchServiceImpl implements SearchService {
         int ps = Math.min(Math.max(pageSize, 1), 200);
         Pageable pageable = PageRequest.of(pn - 1, ps, Sort.by(Sort.Direction.DESC, "collectTime"));
 
+        List<SourceTypeEnum> allowed = Arrays.asList(SourceTypeEnum.CHANNEL, SourceTypeEnum.GROUP);
+        if (Objects.nonNull(type) && !allowed.contains(type)) {
+            return new PageResult<>(Collections.emptyList(), 0, pn, ps);
+        }
+
         Page<SearchBean> page;
         if (StrUtil.isNotBlank(keyword) && Objects.nonNull(type)) {
             page = this.searchRepository.findByTypeAndSourceNameContainingIgnoreCase(type, keyword, pageable);
         } else if (StrUtil.isNotBlank(keyword)) {
-            page = this.searchRepository.findBySourceNameContainingIgnoreCase(keyword, pageable);
+            page = this.searchRepository.findByTypeInAndSourceNameContainingIgnoreCase(allowed, keyword, pageable);
         } else if (Objects.nonNull(type)) {
             page = this.searchRepository.findByType(type, pageable);
         } else {
-            page = this.searchRepository.findAll(pageable);
+            page = this.searchRepository.findByTypeIn(allowed, pageable);
         }
 
         return new PageResult<>(page.getContent(), page.getTotalElements(), pn, ps);
@@ -128,7 +139,7 @@ public class SearchServiceImpl implements SearchService {
         if (CollUtil.isEmpty(ids) || Objects.isNull(status)) {
             return;
         }
-        LocalDateTime now = LocalDateTime.now();
+        long now = System.currentTimeMillis();
 
         List<UpdateQuery> updates = ids.stream().map(id -> {
             Document doc = Document.create();
@@ -141,5 +152,28 @@ public class SearchServiceImpl implements SearchService {
         }).collect(java.util.stream.Collectors.toList());
 
         this.elasticsearchOperations.bulkUpdate(updates, SearchBean.class);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void batchAuditByChatIds(List<Long> chatIds, AuditStatusEnum status, String remark) {
+        if (CollUtil.isEmpty(chatIds) || Objects.isNull(status)) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        UpdateByQueryRequest req = new UpdateByQueryRequest("search_index");
+        req.setQuery(QueryBuilders.termsQuery("chatId", chatIds));
+        java.util.Map<String, Object> params = new java.util.HashMap<>();
+        params.put("status", status.name());
+        params.put("remark", StrUtil.isNotBlank(remark) ? remark : null);
+        params.put("now", now);
+        String script = "ctx._source.auditStatus=params.status; if (params.remark != null) { ctx._source.auditRemark=params.remark; } ctx._source.auditedAt=params.now;";
+        req.setScript(new Script(ScriptType.INLINE, "painless", script, params));
+        try {
+            restHighLevelClient.updateByQuery(req, org.elasticsearch.client.RequestOptions.DEFAULT);
+            log.info("[审核] chatIds={} 关联数据已更新为 {}", chatIds, status.name());
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 }

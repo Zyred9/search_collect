@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.drinkless.robots.beans.view.search.SearchBean;
 import org.drinkless.robots.database.enums.SourceTypeEnum;
+import org.drinkless.robots.database.enums.AuditStatusEnum;
 import org.drinkless.tdlib.TdApi;
 
 import java.time.Instant;
@@ -69,9 +70,9 @@ public class MessageConverter {
         
         // 频道/群组信息
         bean.setChatId(message.chatId);
-        bean.setChannelName(chat.title);
-        bean.setChannelUsername(username);
-        bean.setChannelUrl(buildChannelUrl(username));
+        bean.setChannelName(StrUtil.nullToEmpty(chat.title));
+        bean.setChannelUsername(StrUtil.nullToEmpty(username));
+        bean.setChannelUrl(StrUtil.nullToEmpty(buildChannelUrl(username)));
 
         // 展示次数
         bean.setSubscribers(Objects.nonNull(supergroup) ? StrHelper.formatMemberCount(supergroup.memberCount) : null);
@@ -79,14 +80,15 @@ public class MessageConverter {
         
         // 消息元数据（TDLib 的 message.id 右移20位得到真实的消息ID）
         bean.setMessageId(message.id >> 20);
-        bean.setCollectTime(convertTimestamp(message.date));
-        
-        // 判断是否为受限内容（18禁）
+        bean.setCollectTime(message.date * 1000L);
+
+        // 审核状态初始化（频道/群组相关消息统一初始化）
+        bean.setAuditStatus(AuditStatusEnum.PENDING);
+        bean.setAuditRemark("");
+        bean.setAuditedBy("");
+        bean.setAuditedAt(System.currentTimeMillis());
         bean.setMarked(isRestrictedContent(message, supergroup));
-        
-        // 媒体资源特有字段
         extractMediaInfo(message.content, bean);
-        
         return bean;
     }
 

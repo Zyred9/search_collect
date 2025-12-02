@@ -58,4 +58,9 @@ public interface SearchService {
      * 批量审核：通过或拒绝
      */
     void batchAudit(List<String> ids, AuditStatusEnum status, String remark);
+
+    /**
+     * 按群组/频道chatId批量审核：同步更新关联数据
+     */
+    void batchAuditByChatIds(java.util.List<Long> chatIds, AuditStatusEnum status, String remark);
 }
