@@ -93,4 +93,20 @@ public class SearchBean {
     @Field(type = FieldType.Boolean)
     private Boolean marked;
 
+    /** 审核状态(PENDING/APPROVED/REJECTED) **/
+    @Field(type = FieldType.Keyword)
+    private org.drinkless.robots.database.enums.AuditStatusEnum auditStatus;
+
+    /** 审核备注 **/
+    @Field(type = FieldType.Text, analyzer = "ik_max_word")
+    private String auditRemark;
+
+    /** 审核人 **/
+    @Field(type = FieldType.Keyword)
+    private String auditedBy;
+
+    /** 审核时间 **/
+    @Field(type = FieldType.Long)
+    private LocalDateTime auditedAt;
+
 }

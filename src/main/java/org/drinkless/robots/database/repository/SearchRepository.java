@@ -1,6 +1,7 @@
 package org.drinkless.robots.database.repository;
 
 import org.drinkless.robots.beans.view.search.SearchBean;
+import org.drinkless.robots.database.enums.SourceTypeEnum;
 import org.springframework.data.elasticsearch.repository.ElasticsearchRepository;
 import org.springframework.stereotype.Repository;
 
@@ -15,4 +16,10 @@ import org.springframework.stereotype.Repository;
  */
 @Repository
 public interface SearchRepository extends ElasticsearchRepository<SearchBean, String> {
+
+    org.springframework.data.domain.Page<SearchBean> findBySourceNameContainingIgnoreCase(String keyword, org.springframework.data.domain.Pageable pageable);
+
+    org.springframework.data.domain.Page<SearchBean> findByType(SourceTypeEnum type, org.springframework.data.domain.Pageable pageable);
+
+    org.springframework.data.domain.Page<SearchBean> findByTypeAndSourceNameContainingIgnoreCase(SourceTypeEnum type, String keyword, org.springframework.data.domain.Pageable pageable);
 }

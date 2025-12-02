@@ -1,6 +1,9 @@
 package org.drinkless.robots.database.service;
 
 import org.drinkless.robots.beans.view.search.SearchBean;
+import org.drinkless.robots.beans.view.base.PageResult;
+import org.drinkless.robots.database.enums.AuditStatusEnum;
+import org.drinkless.robots.database.enums.SourceTypeEnum;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
@@ -45,4 +48,14 @@ public interface SearchService {
     int parseAndSaveTxtFile(MultipartFile file) throws Exception;
 
     boolean exists(long id);
+
+    /**
+     * ES分页查询，按收集时间倒序
+     */
+    PageResult<SearchBean> pageSearch(int pageNum, int pageSize, String keyword, SourceTypeEnum type);
+
+    /**
+     * 批量审核：通过或拒绝
+     */
+    void batchAudit(List<String> ids, AuditStatusEnum status, String remark);
 }

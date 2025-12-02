@@ -7,6 +7,10 @@ import org.drinkless.robots.database.entity.Account;
 import org.drinkless.robots.database.service.AccountService;
 import org.drinkless.robots.database.service.SearchService;
 import org.drinkless.robots.database.service.TdService;
+import org.drinkless.robots.beans.view.base.PageResult;
+import org.drinkless.robots.beans.view.search.AuditRequest;
+import org.drinkless.robots.database.enums.AuditStatusEnum;
+import org.drinkless.robots.database.enums.SourceTypeEnum;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import cn.hutool.core.util.StrUtil;
@@ -131,6 +135,49 @@ public class TdController {
         } catch (Exception e) {
             return Result.error("上传失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * ES分页查询接口
+     *
+     * 功能：分页查询 Elasticsearch 索引 `search_index` 的文档，按 `collectTime` 倒序
+     * 入参：
+     * - pageNum: 当前页码(默认1)
+     * - pageSize: 每页大小(默认10，最大200)
+     * - keyword: 关键词(可选，匹配 sourceName)
+     * - type: 内容类型(可选，枚举值 SourceTypeEnum)
+     * 返回：分页数据列表、总记录数、当前页码、每页大小
+     */
+    @GetMapping("/search/page")
+    public Result<PageResult<org.drinkless.robots.beans.view.search.SearchBean>> pageSearch(
+            @RequestParam(value = "pageNum", defaultValue = "1") int pageNum,
+            @RequestParam(value = "pageSize", defaultValue = "10") int pageSize,
+            @RequestParam(value = "keyword", required = false) String keyword,
+            @RequestParam(value = "type", required = false) SourceTypeEnum type
+    ) {
+        PageResult<org.drinkless.robots.beans.view.search.SearchBean> result = this.searchService.pageSearch(pageNum, pageSize, keyword, type);
+        return Result.success(result);
+    }
+
+    /**
+     * 批量审核接口
+     *
+     * 功能：对 `search_index` 文档进行批量审核，通过或拒绝
+     * 入参：
+     * - Authorization: 请求头，必须存在
+     * - body: { operation: APPROVED/REJECTED, ids: ["id1","id2"...], remark: "可选备注" }
+     * 返回：操作结果
+     */
+    @PostMapping("/search/audit")
+    public Result<Void> audit(
+            @RequestBody AuditRequest req
+    ) {
+        if (req == null || req.getOperation() == null || cn.hutool.core.collection.CollUtil.isEmpty(req.getIds())) {
+            return Result.error(400, "参数不完整: 需要 operation 与 ids");
+        }
+        AuditStatusEnum op = req.getOperation();
+        this.searchService.batchAudit(req.getIds(), op, req.getRemark());
+        return Result.success();
     }
 
 }
