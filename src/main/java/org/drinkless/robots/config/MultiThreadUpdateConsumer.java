@@ -28,7 +28,7 @@ public interface MultiThreadUpdateConsumer extends LongPollingUpdateConsumer {
 
     ThreadPoolExecutor EX = ExecutorBuilder.create()
             .setCorePoolSize(2)
-            .setMaxPoolSize(100)
+            .setMaxPoolSize(20)      // 最大线程20个,降低并发压力
             .setThreadFactory(ThreadFactoryBuilder.create()
                     .setNamePrefix("long_poll_")
                     .build())

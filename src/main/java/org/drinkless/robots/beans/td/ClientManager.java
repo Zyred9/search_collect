@@ -59,6 +59,8 @@ public class ClientManager {
     private final Map<String, Client> clientMap = new ConcurrentHashMap<>();
     // 小号是否已登录（ready）
     private final Map<String, Boolean> authStatusMap = new ConcurrentHashMap<>();
+    // 记录已处理过的邮箱验证状态，防止重复发送
+    private final Map<String, Boolean> emailSkippedMap = new ConcurrentHashMap<>();
     // 开启实时日志打印的群/频道：手机号 -> 监听的 chatId 集合
     private final Map<String, Set<Long>> phoneToWatchedChatIds = new ConcurrentHashMap<>();
     // Supergroup 缓存：supergroupId -> Supergroup 对象（用于提取 username）
@@ -71,6 +73,31 @@ public class ClientManager {
      */
     public void startAccountLogin(String phone) {
         try {
+            // 检查是否已有活跃的客户端实例，如果有则先关闭
+            Client existingClient = clientMap.get(phone);
+            if (existingClient != null) {
+                log.warn("[登录] 小号 {} 已有活跃客户端，先关闭旧实例", phone);
+                // 同步关闭旧客户端
+                try {
+                    existingClient.send(new TdApi.Close(), result -> {
+                        if (result instanceof TdApi.Ok) {
+                            log.info("[登录] 小号 {} 旧客户端关闭成功", phone);
+                        }
+                    });
+                    // 等待一段时间，确保文件锁释放
+                    Thread.sleep(2000);
+                } catch (Exception e) {
+                    log.warn("[登录] 关闭小号 {} 旧客户端异常: {}", phone, e.getMessage());
+                }
+                // 清理旧状态
+                clientMap.remove(phone);
+                authStatusMap.remove(phone);
+                emailSkippedMap.remove(phone);
+            }
+            
+            // 更新数据库状态为初始化，让前端知道登录流程已开始
+            accountService.updateStatus(phone, AccountStatus.INITIALIZING);
+            
             Client client = Client.create(
                     object -> onSubAccountUpdate(phone, object),
                     this::onUpdateException,
@@ -78,9 +105,11 @@ public class ClientManager {
             );
             this.clientMap.put(phone, client);
             this.authStatusMap.put(phone, false);
-            log.info("[登录] {} 登录成功", phone);
+            log.info("[登录] {} 登录流程开始", phone);
         } catch (Exception e) {
             log.error("[登录] {} 登录失败, 原因：{}", phone, e.getMessage(), e);
+            // 登录失败时更新状态
+            accountService.updateStatus(phone, AccountStatus.LOGIN_FAILED);
             throw new SelfException("登录失败");
         }
     }
@@ -101,8 +130,11 @@ public class ClientManager {
         client.send(new TdApi.CheckAuthenticationCode(code), result -> {
             if (result instanceof TdApi.Error error) {
                 log.error("[登录] 小号 {} 验证码验证失败: {}", phone, error.message);
+                // 验证码错误，更新状态为登录失败
+                accountService.updateStatus(phone, AccountStatus.LOGIN_FAILED);
             } else {
                 log.info("[登录] 小号 {} 验证成功", phone);
+                // 验证成功后，TDLib会自动触发 AuthorizationStateReady，那里会更新为 LOGGED_IN
             }
         });
     }
@@ -133,7 +165,9 @@ public class ClientManager {
     /* ============================== TDLib 回调处理 ============================== */
 
     private void onSubAccountUpdate(String phone, TdApi.Object object) {
+        // 只打印重要的状态更新，减少日志噪音
         if (object instanceof TdApi.UpdateAuthorizationState updateAuthorizationState) {
+            log.info("【登录】 {} 收到授权状态变化：{}", phone, updateAuthorizationState.authorizationState.getClass().getSimpleName());
             handleAuthorizationState(phone, updateAuthorizationState.authorizationState);
             return;
         }
@@ -157,15 +191,53 @@ public class ClientManager {
             return;
         }
         if (authorizationState instanceof TdApi.AuthorizationStateWaitPhoneNumber) {
+            log.info("[登录] 小号 {} 开始设置电话号码", phone);
             client.send(new TdApi.SetAuthenticationPhoneNumber(phone, null), result -> {
                 if (result instanceof TdApi.Error error) {
                     log.error("[登录] 小号 {} 设置电话号码失败: {}", phone, error.message);
                     accountService.updateStatus(phone, AccountStatus.LOGIN_FAILED);
+                } else if (result instanceof TdApi.Ok) {
+                    log.info("[登录] 小号 {} 设置电话号码成功，等待下一步验证", phone);
+                }
+            });
+            return;
+        }
+        // 处理邮箱验证状态（提供邮箱地址）
+        if (authorizationState instanceof TdApi.AuthorizationStateWaitEmailAddress waitEmailAddress) {
+            // 防止重复发送
+            if (Boolean.TRUE.equals(emailSkippedMap.get(phone))) {
+                log.warn("[登录] 小号 {} 已经发送过邮箱地址，忽略重复状态", phone);
+                return;
+            }
+            
+            log.info("[登录] 小号 {} 需要邮箱验证，allowAppleId={}, allowGoogleId={}", phone, waitEmailAddress.allowAppleId, waitEmailAddress.allowGoogleId);
+            emailSkippedMap.put(phone, true);
+            
+            // 从数据库获取邮箱地址
+            Account account = accountService.selectAccount(phone, "", "");
+            String email = account.getEmail();
+            
+            if (StrUtil.isBlank(email)) {
+                log.error("[登录] 小号 {} 未配置邮箱地址，登录失败", phone);
+                accountService.updateStatus(phone, AccountStatus.LOGIN_FAILED);
+                emailSkippedMap.remove(phone);
+                return;
+            }
+            
+            log.info("[登录] 小号 {} 设置邮箱地址: {}", phone, email);
+            client.send(new TdApi.SetAuthenticationEmailAddress(email), result -> {
+                if (result instanceof TdApi.Error error) {
+                    log.error("[登录] 小号 {} 设置邮箱地址失败: {}", phone, error.message);
+                    accountService.updateStatus(phone, AccountStatus.LOGIN_FAILED);
+                    emailSkippedMap.remove(phone);
+                } else if (result instanceof TdApi.Ok) {
+                    log.info("[登录] 小号 {} 邮箱地址已设置，等待邮箱验证码", phone);
                 }
             });
             return;
         }
         if (authorizationState instanceof TdApi.AuthorizationStateWaitCode) {
+            emailSkippedMap.remove(phone);
             this.accountService.updateStatus(phone, AccountStatus.NEED_CODE);
             return;
         }
@@ -199,10 +271,14 @@ public class ClientManager {
         parameters.systemLanguageCode = TD_SYSTEM_LANGUAGE;
         parameters.deviceModel = TD_DEVICE_MODEL;
         parameters.applicationVersion = TD_APP_VERSION;
+        
+        log.info("[登录] 小号 {} 开始设置TDLib参数", phone);
         client.send(parameters, result -> {
             if (result instanceof TdApi.Error error) {
                 log.error("[登录] 小号 {} 设置TDLib参数失败: {}", phone, error.message);
                 accountService.updateStatus(phone, AccountStatus.LOGIN_FAILED);
+            } else if (result instanceof TdApi.Ok) {
+                log.info("[登录] 小号 {} 设置TDLib参数成功，等待下一个授权状态", phone);
             }
         });
         // 降低日志噪音
@@ -215,7 +291,7 @@ public class ClientManager {
     }
 
     private void handleTwoFactorPassword(Client client, String phone) {
-        Account account = accountService.selectAccount(phone, "");
+        Account account = accountService.selectAccount(phone, "", "");
         if (StrUtil.isNotBlank(account.getPassword())) {
             client.send(new TdApi.CheckAuthenticationPassword(account.getPassword()), result -> {
                 if (result instanceof TdApi.Error error) {
@@ -642,11 +718,12 @@ public class ClientManager {
 
         Integer number = this.saveChannelOrGroupRecord(chat, telegramLink);
 
-        // ==================== 1. 开始拉取历史消息 ====================
+        // 开始拉取历史消息
         int totalFetched = 0;
         long fromMessageId = 0; // 总是从最新消息开始
         LocalDateTime groupCreationTime = null; // 群组创建时间(取最早消息的时间)
         java.util.List<SearchBean> searchBeans = new java.util.ArrayList<>();
+        long maxMessageIdInBatch = 0; // 批次中最大消息ID
 
         while (totalFetched < count) {
             CompletableFuture<TdApi.Object> future = new CompletableFuture<>();
@@ -684,13 +761,18 @@ public class ClientManager {
                         if (Objects.nonNull(searchBean)) {
                             searchBeans.add(searchBean);
                             totalFetched++;
+                            // 记录当前批次最大消息ID
+                            maxMessageIdInBatch = Math.max(maxMessageIdInBatch, message.id);
                         }
-                        this.accountWatchService.updateLastMessage(phone, chatId, message.id);
                     }
 
                     // 批量保存到 ES（每 50 条保存一次，减少 IO）
                     if (searchBeans.size() >= 50) {
                         searchService.batchSave(searchBeans);
+                        // 每批次更新一次断点，减少数据库操作频率
+                        if (maxMessageIdInBatch > 0) {
+                            this.accountWatchService.updateLastMessage(phone, chatId, maxMessageIdInBatch);
+                        }
                         searchBeans.clear();
                     }
                     if (totalFetched >= count) {
@@ -708,8 +790,13 @@ public class ClientManager {
             }
         }
 
+        // 最后一批次数据保存
         if (!searchBeans.isEmpty()) {
             searchService.batchSave(searchBeans);
+            // 更新最终断点
+            if (maxMessageIdInBatch > 0) {
+                this.accountWatchService.updateLastMessage(phone, chatId, maxMessageIdInBatch);
+            }
         }
         log.info("[拉取历史] {} ({}) 拉取任务完成，共保存 {} 条有效消息", chat.title, chatId, totalFetched);
 

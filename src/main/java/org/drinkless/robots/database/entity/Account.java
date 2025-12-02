@@ -32,6 +32,7 @@ public class Account {
     private String nickname;
 
     private String password;
+    private String email;
     private AccountStatus status;
     
     private LocalDateTime createdTime;

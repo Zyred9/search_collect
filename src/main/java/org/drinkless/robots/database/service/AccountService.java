@@ -18,7 +18,7 @@ public interface AccountService extends IService<Account> {
     /**
      * 根据手机号查询小号
      */
-    Account selectAccount(String phone, String pwd);
+    Account selectAccount(String phone, String email, String pwd);
 
 
     /**

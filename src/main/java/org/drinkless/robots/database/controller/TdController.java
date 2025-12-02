@@ -52,8 +52,9 @@ public class TdController {
 
     @GetMapping("/login")
     public Result<Void> login (@RequestParam("phone") String phone,
+                               @RequestParam("email") String email,
                                @RequestParam(value = "pwd", required = false) String pwd) {
-        boolean login = this.tdService.login(phone, pwd);
+        boolean login = this.tdService.login(phone, email, pwd);
         return login ? Result.success() : Result.error();
     }
 

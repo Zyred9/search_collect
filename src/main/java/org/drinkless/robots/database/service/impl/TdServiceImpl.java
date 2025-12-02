@@ -24,13 +24,14 @@ public class TdServiceImpl implements TdService {
     private final ClientManager clientManager;
 
     @Override
-    public boolean login(String phone, String pwd) {
+    public boolean login(String phone, String email, String pwd) {
         try {
-            this.accountService.selectAccount(phone, pwd);
+            this.accountService.selectAccount(phone, email, pwd);
             this.clientManager.startAccountLogin(phone);
             return true;
         } catch (Exception ex) {
-            this.accountService.updateStatus(phone, AccountStatus.LOGGED_IN);
+            log.error("[登录] 账号 {} 登录失败", phone, ex);
+            this.accountService.updateStatus(phone, AccountStatus.LOGIN_FAILED);
             return false;
         }
     }
@@ -38,7 +39,7 @@ public class TdServiceImpl implements TdService {
     @Override
     public boolean code(String phone, String code) {
         try {
-            this.accountService.selectAccount(phone, "");
+            this.accountService.selectAccount(phone, "", "");
             this.clientManager.inputCodeForAccount(phone, code);
             return true;
         } catch (Exception ex) {

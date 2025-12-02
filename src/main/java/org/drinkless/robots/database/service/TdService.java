@@ -9,7 +9,7 @@ package org.drinkless.robots.database.service;
  */
 public interface TdService {
 
-    boolean login(String phone, String pwd);
+    boolean login(String phone, String email, String pwd);
 
     boolean code(String phone, String code);
 

@@ -28,11 +28,12 @@ public class AccountServiceImpl extends ServiceImpl<AccountMapper, Account> impl
 
 
     @Override
-    public Account selectAccount(String phone, String pwd) {
+    public Account selectAccount(String phone, String email, String pwd) {
         phone = StrHelper.phoneNumber(phone);
         Account account = this.baseMapper.selectById(phone);
         if (Objects.isNull(account)) {
             account = Account.buildDefault(phone, pwd);
+            account.setEmail(email);
             this.baseMapper.insert(account);
         }
         return account;
@@ -62,7 +63,7 @@ public class AccountServiceImpl extends ServiceImpl<AccountMapper, Account> impl
 
     @Override
     public void updateStatus(String phone, AccountStatus status) {
-        Account Account = this.selectAccount(phone, "");
+        Account Account = this.selectAccount(phone, "", "");
         if (Account != null) {
             Account.setStatus(status);
             this.updateById(Account);
