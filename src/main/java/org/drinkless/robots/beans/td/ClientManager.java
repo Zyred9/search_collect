@@ -4,7 +4,6 @@ import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.drinkless.robots.beans.view.async.AsyncBean;
 import org.drinkless.robots.beans.view.search.SearchBean;
-import org.drinkless.robots.config.BotProperties;
 import org.drinkless.robots.config.SelfException;
 import org.drinkless.robots.database.entity.Account;
 import org.drinkless.robots.database.entity.AccountWatch;
@@ -50,12 +49,7 @@ public class ClientManager {
     private static final long QPS_SLEEP_MILLIS = 200;
     private static final int CHAT_HISTORY_TIMEOUT_SECONDS = 120;
 
-    // ==================== 最新消息拉取配置 ====================
-    private static final int LATEST_MAX_FETCH_COUNT = 500;
-
     /* ============================== 依赖与状态 ============================== */
-
-    @Resource private BotProperties properties;
     @Resource private AccountService accountService;
     @Resource private AccountWatchService accountWatchService;
     @Resource private SearchService searchService;
@@ -139,7 +133,6 @@ public class ClientManager {
                 accountService.updateStatus(phone, AccountStatus.LOGIN_FAILED);
             } else {
                 log.info("[登录] 小号 {} 验证成功", phone);
-                // 验证成功后，TDLib会自动触发 AuthorizationStateReady，那里会更新为 LOGGED_IN
             }
         });
     }
@@ -703,7 +696,7 @@ public class ClientManager {
      * 1. chatId：群组/频道 ID（TDLib chatId，支持负数）
      * 2. url：来源链接（用于记录 joinSource / inviteLink 等信息，可为 Telegram 链接）
      * 3. 内部会基于 t_account_watch.last_message_id 只拉取比上次更新更新的消息
-     * 4. 每次调用最多拉取 {@link #LATEST_MAX_FETCH_COUNT} 条最新消息
+     * 4. 若不存在断点，则从最新消息开始向历史方向补齐
      * </pre>
      *
      * @param chatId 群组/频道ID
@@ -829,10 +822,6 @@ public class ClientManager {
                             buffer.add(searchBean);
                             totalFetched++;
                             maxMessageIdInBatch = Math.max(maxMessageIdInBatch, message.id);
-                        }
-                        if (totalFetched >= LATEST_MAX_FETCH_COUNT) {
-                            hasMore = false;
-                            break;
                         }
                     }
 

@@ -13,7 +13,7 @@ mybatis-plus:
   configuration:
     # MyBatis 配置
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    # log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
 
   global-config:
     # 全局配置
@@ -68,6 +68,3 @@ logging:
     org.drinkless.robots: info
     org.springframework.data.elasticsearch: info
     org.elasticsearch.client: info
-    # MyBatis-Plus SQL 日志
-    org.drinkless.robots.database.mapper: info
-    com.baomidou.mybatisplus: info
