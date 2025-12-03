@@ -12,6 +12,7 @@ import org.drinkless.robots.database.entity.Included;
 import org.drinkless.robots.database.enums.AccountStatus;
 import org.drinkless.robots.database.enums.AuditStatusEnum;
 import org.drinkless.robots.database.enums.SourceTypeEnum;
+import org.drinkless.robots.database.enums.WatchTypeEnum;
 import org.drinkless.robots.database.service.AccountService;
 import org.drinkless.robots.database.service.AccountWatchService;
 import org.drinkless.robots.database.service.SearchService;
@@ -48,6 +49,9 @@ public class ClientManager {
     private static final int HISTORY_PAGE_SIZE = 200;
     private static final long QPS_SLEEP_MILLIS = 200;
     private static final int CHAT_HISTORY_TIMEOUT_SECONDS = 120;
+
+    // ==================== 最新消息拉取配置 ====================
+    private static final int LATEST_MAX_FETCH_COUNT = 500;
 
     /* ============================== 依赖与状态 ============================== */
 
@@ -565,6 +569,44 @@ public class ClientManager {
             .toLocalDateTime();
     }
 
+    /**
+     * 根据 TDLib Chat / Supergroup 映射 WatchTypeEnum
+     */
+    private WatchTypeEnum resolveWatchType(TdApi.Chat chat, TdApi.Supergroup supergroup) {
+        if (chat.type instanceof TdApi.ChatTypeSupergroup) {
+            if (Objects.nonNull(supergroup) && supergroup.isChannel) {
+                return WatchTypeEnum.CHANNEL;
+            }
+            return WatchTypeEnum.SUPER_GROUP;
+        }
+        return WatchTypeEnum.GROUP;
+    }
+
+    private String resolveJoinSource(String url) {
+        if (StrUtil.isBlank(url)) {
+            return null;
+        }
+        String link = url.trim();
+        if (link.contains("joinchat") || link.contains("t.me/+")) {
+            return "INVITE_LINK";
+        }
+        if (link.contains("t.me/")) {
+            return "PUBLIC";
+        }
+        return null;
+    }
+
+    private String resolveInviteLink(String url) {
+        if (StrUtil.isBlank(url)) {
+            return null;
+        }
+        String link = url.trim();
+        if (link.contains("joinchat") || link.contains("t.me/+")) {
+            return link;
+        }
+        return null;
+    }
+
     /* ============================== 拉取历史消息 API ============================== */
 
     /**
@@ -655,6 +697,38 @@ public class ClientManager {
     }
 
     /**
+     * 拉取指定群组/频道的最新消息（增量拉取）
+     * <pre>
+     * 使用说明：
+     * 1. chatId：群组/频道 ID（TDLib chatId，支持负数）
+     * 2. url：来源链接（用于记录 joinSource / inviteLink 等信息，可为 Telegram 链接）
+     * 3. 内部会基于 t_account_watch.last_message_id 只拉取比上次更新更新的消息
+     * 4. 每次调用最多拉取 {@link #LATEST_MAX_FETCH_COUNT} 条最新消息
+     * </pre>
+     *
+     * @param chatId 群组/频道ID
+     * @param url    请求来源地址（Telegram 链接或业务方传入的标记链接）
+     * @return 结果描述
+     */
+    public String fetchLatestMessages(long chatId, String url) {
+        if (chatId == 0L) {
+            return "chatId 不能为空";
+        }
+
+        Client client = selectAvailableClient();
+        if (Objects.isNull(client)) {
+            return "没有可用的已登录客户端";
+        }
+        String phone = getPhoneByClient(client);
+        if (StrUtil.isBlank(phone)) {
+            return "未找到可用的小号";
+        }
+
+        CompletableFuture.runAsync(() -> fetchLatestMessagesAsync(client, phone, chatId, url), ThreadHelper::execute);
+        return "最新消息拉取任务已启动";
+    }
+
+    /**
      * 分页拉取历史消息并保存到 Elasticsearch
      *
      * @param client TDLib 客户端
@@ -674,22 +748,166 @@ public class ClientManager {
     }
 
     /**
+     * 拉取最新消息的异步实现
+     */
+    private void fetchLatestMessagesAsync(Client client, String phone, long chatId, String url) {
+        try {
+            CompletableFuture<TdApi.Object> chatFuture = new CompletableFuture<>();
+            client.send(new TdApi.GetChat(chatId), chatFuture::complete);
+            TdApi.Object chatObj = chatFuture.get(CHAT_HISTORY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            if (!(chatObj instanceof TdApi.Chat chat)) {
+                log.error("[最新消息] 无法获取 chatId={} 的聊天信息", chatId);
+                return;
+            }
+
+            TdApi.Supergroup supergroup = null;
+            if (chat.type instanceof TdApi.ChatTypeSupergroup supergroupType) {
+                CompletableFuture<TdApi.Supergroup> sgFuture = new CompletableFuture<>();
+                fetchAndCacheSupergroup(client, supergroupType.supergroupId, sgFuture::complete);
+                supergroup = sgFuture.get(CHAT_HISTORY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            }
+
+            // 记录/更新 watch 配置（类型、标题、用户名、来源等）
+            AccountWatch watch = this.accountWatchService.getOne(
+                    com.baomidou.mybatisplus.core.toolkit.Wrappers.<AccountWatch>lambdaQuery()
+                            .eq(AccountWatch::getPhone, phone)
+                            .eq(AccountWatch::getChatId, chatId)
+            );
+            WatchTypeEnum watchType = resolveWatchType(chat, supergroup);
+            String username = Objects.nonNull(supergroup) && supergroup.usernames != null
+                    && supergroup.usernames.activeUsernames.length > 0
+                    ? supergroup.usernames.activeUsernames[0]
+                    : null;
+
+            AccountWatch upsert = new AccountWatch()
+                    .setPhone(phone)
+                    .setChatId(chatId)
+                    .setChatType(watchType)
+                    .setChatUsername(username)
+                    .setChatTitle(chat.title)
+                    .setJoinSource(resolveJoinSource(url))
+                    .setInviteLink(resolveInviteLink(url))
+                    .setWatchEnabled(Boolean.TRUE);
+            this.accountWatchService.upsertWatch(upsert);
+
+            AuditStatusEnum chatAuditStatus = this.searchService.getLatestAuditStatusByChatId(chatId);
+
+            long lastMessageId = Objects.nonNull(watch) && Objects.nonNull(watch.getLastMessageId())
+                    ? watch.getLastMessageId() : 0L;
+
+            int totalFetched = 0;
+            long fromMessageId = Math.max(lastMessageId, 0L);
+            int offset = lastMessageId > 0L ? -1 : 0;
+            long maxMessageIdInBatch = 0L;
+            boolean hasMore = true;
+            java.util.List<SearchBean> buffer = new java.util.ArrayList<>();
+
+            while (hasMore) {
+                CompletableFuture<TdApi.Object> future = new CompletableFuture<>();
+                client.send(new TdApi.GetChatHistory(chatId, fromMessageId, offset, HISTORY_PAGE_SIZE, false), future::complete);
+                TdApi.Object obj = future.get(CHAT_HISTORY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+                if (obj instanceof TdApi.Messages msgs) {
+                    TdApi.Message[] messages = msgs.messages;
+                    if (messages == null || messages.length == 0) {
+                        break;
+                    }
+
+                    for (TdApi.Message message : messages) {
+                        if (lastMessageId > 0 && message.id <= lastMessageId) {
+                            hasMore = false;
+                            break;
+                        }
+                        SearchBean searchBean = MessageConverter.convertToSearchBean(message, chat, supergroup);
+                        if (Objects.nonNull(searchBean)) {
+                            if (chatAuditStatus == AuditStatusEnum.APPROVED) {
+                                searchBean.setAuditStatus(AuditStatusEnum.APPROVED);
+                                searchBean.setAuditRemark("");
+                                searchBean.setAuditedBy("");
+                                searchBean.setAuditedAt(System.currentTimeMillis());
+                            }
+                            buffer.add(searchBean);
+                            totalFetched++;
+                            maxMessageIdInBatch = Math.max(maxMessageIdInBatch, message.id);
+                        }
+                        if (totalFetched >= LATEST_MAX_FETCH_COUNT) {
+                            hasMore = false;
+                            break;
+                        }
+                    }
+
+                    if (!buffer.isEmpty()) {
+                        searchService.batchSave(buffer);
+                        buffer.clear();
+                        if (maxMessageIdInBatch > 0) {
+                            this.accountWatchService.updateLastMessage(phone, chatId, maxMessageIdInBatch);
+                        }
+                    }
+
+                    if (!hasMore) {
+                        break;
+                    }
+
+                    fromMessageId = messages[messages.length - 1].id;
+                    Thread.sleep(QPS_SLEEP_MILLIS);
+                } else if (obj instanceof TdApi.Error error) {
+                    log.error("[最新消息] chatId={} 拉取失败: {}", chatId, error.message);
+                    break;
+                } else {
+                    hasMore = false;
+                }
+            }
+
+            log.info("[最新消息] phone={} chatId={} 本次拉取 {} 条新消息", phone, chatId, totalFetched);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("[最新消息] chatId={} 拉取被中断", chatId);
+        } catch (Exception e) {
+            log.error("[最新消息] chatId={} 拉取异常", chatId, e);
+        }
+    }
+
+    /**
      * 启动拉取任务
      */
     private void startFetchTask(Client client, String phone, TdApi.Chat chat, String telegramLink, int count, boolean shouldLeaveAfterFetch) {
         long chatId = chat.id;
-        
+
+        TdApi.Supergroup supergroup = null;
+        if (chat.type instanceof TdApi.ChatTypeSupergroup supergroupType) {
+            supergroup = supergroupCache.get(supergroupType.supergroupId);
+        }
+
         // 查询是否已有拉取记录
-        AccountWatch watch = accountWatchService.getOne(
+        AccountWatch existsWatch = accountWatchService.getOne(
             com.baomidou.mybatisplus.core.toolkit.Wrappers.<AccountWatch>lambdaQuery()
                 .eq(AccountWatch::getPhone, phone)
                 .eq(AccountWatch::getChatId, chatId)
         );
+
+        WatchTypeEnum watchType = resolveWatchType(chat, supergroup);
+        String username = null;
+        if (Objects.nonNull(supergroup) && supergroup.usernames != null
+                && supergroup.usernames.activeUsernames != null
+                && supergroup.usernames.activeUsernames.length > 0) {
+            username = supergroup.usernames.activeUsernames[0];
+        }
+
+        AccountWatch upsert = new AccountWatch()
+                .setPhone(phone)
+                .setChatId(chatId)
+                .setChatType(watchType)
+                .setChatUsername(username)
+                .setChatTitle(chat.title)
+                .setJoinSource(resolveJoinSource(telegramLink))
+                .setInviteLink(resolveInviteLink(telegramLink))
+                .setWatchEnabled(Boolean.TRUE);
+        this.accountWatchService.upsertWatch(upsert);
         
         // 获取已处理的最大消息ID（用于去重）
         long lastProcessedMessageId;
-        if (Objects.nonNull(watch) && Objects.nonNull(watch.getLastMessageId())) {
-            lastProcessedMessageId = watch.getLastMessageId();
+        if (Objects.nonNull(existsWatch) && Objects.nonNull(existsWatch.getLastMessageId())) {
+            lastProcessedMessageId = existsWatch.getLastMessageId();
             log.info("[拉取历史] 检测到断点记录，已处理最大消息ID: {}", lastProcessedMessageId);
         } else {
             lastProcessedMessageId = 0;

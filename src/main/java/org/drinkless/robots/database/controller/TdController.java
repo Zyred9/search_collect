@@ -2,20 +2,20 @@ package org.drinkless.robots.database.controller;
 
 
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import org.drinkless.robots.beans.view.base.PageResult;
 import org.drinkless.robots.beans.view.base.Result;
+import org.drinkless.robots.beans.view.search.AuditRequest;
 import org.drinkless.robots.beans.view.search.SearchBean;
 import org.drinkless.robots.database.entity.Account;
+import org.drinkless.robots.database.enums.AuditStatusEnum;
+import org.drinkless.robots.database.enums.SourceTypeEnum;
 import org.drinkless.robots.database.service.AccountService;
 import org.drinkless.robots.database.service.SearchService;
 import org.drinkless.robots.database.service.TdService;
-import org.drinkless.robots.beans.view.base.PageResult;
-import org.drinkless.robots.beans.view.search.AuditRequest;
-import org.drinkless.robots.database.enums.AuditStatusEnum;
-import org.drinkless.robots.database.enums.SourceTypeEnum;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-import cn.hutool.core.util.StrUtil;
 
 import javax.annotation.Resource;
 import java.util.ArrayList;
@@ -73,22 +73,6 @@ public class TdController {
         return login ? Result.success() : Result.error();
     }
 
-    /**
-     * 拉取公开群组/频道历史消息
-     * 仅支持公开群组（通过 @username 或 t.me/username 访问）
-     * <pre>
-     * 参数说明:
-     * - link: 公开群组链接 (必填，支持 @username 或 t.me/username)
-     * - count: 拉取消息数量，默认 3000
-     * 
-     * 使用场景:
-     * 仅支持公开群组和频道的历史消息拉取
-     * </pre>
-     */
-    /**
-     * 账号下线接口
-     * 关闭 TDLib 客户端连接，状态更新为 OFFLINE
-     */
     @GetMapping("/offline")
     public Result<Void> offline(@RequestParam("phone") String phone) {
         try {
@@ -102,16 +86,6 @@ public class TdController {
     /**
      * 拉取群组/频道历史消息
      * 支持公开群组和私密群组
-     * <pre>
-     * 参数说明:
-     * - link: 公开群组链接 (支持 @username 或 t.me/username)
-     * - inviteLink: 私密群组邀请链接 (格式: t.me/+xxxxx 或 t.me/joinchat/xxxxx)
-     * - count: 拉取消息数量，默认 3000
-     * 
-     * 使用场景:
-     * 1. 公开群组：只传 link
-     * 2. 私密群组：传 inviteLink（优先级更高）
-     * </pre>
      */
     @GetMapping("/history")
     public Result<String> history (@RequestParam(value = "link", required = false) String link,
@@ -129,6 +103,24 @@ public class TdController {
         }
     }
 
+    /**
+     * 拉取群组/频道最新消息（增量）
+     * 提交为异步任务，立即返回任务提交结果
+     */
+    @GetMapping("/latest")
+    public Result<String> latest(@RequestParam("chatId") long chatId,
+                                 @RequestParam("url") String url) {
+        if (chatId == 0L) {
+            return Result.error("chatId不能为空");
+        }
+        try {
+            String message = this.tdService.latest(chatId, url);
+            return Result.success(message != null ? message : "最新消息拉取任务已启动");
+        } catch (Exception e) {
+            return Result.error("最新消息拉取失败: " + e.getMessage());
+        }
+    }
+
     @PostMapping("/upload")
     public Result<String> uploadTxtFile(@RequestParam("file") MultipartFile file) {
         try {
@@ -141,17 +133,6 @@ public class TdController {
         }
     }
 
-    /**
-     * ES分页查询接口
-     *
-     * 功能：分页查询 Elasticsearch 索引 `search_index` 的文档，按 `collectTime` 倒序
-     * 入参：
-     * - pageNum: 当前页码(默认1)
-     * - pageSize: 每页大小(默认10，最大200)
-     * - keyword: 关键词(可选，匹配 sourceName)
-     * - type: 内容类型(可选，枚举值 SourceTypeEnum)
-     * 返回：分页数据列表、总记录数、当前页码、每页大小
-     */
     @GetMapping("/search/page")
     public Result<PageResult<SearchBean>> pageSearch(
             @RequestParam(value = "pageNum", defaultValue = "1") int pageNum,
@@ -163,15 +144,6 @@ public class TdController {
         return Result.success(result);
     }
 
-    /**
-     * 批量审核接口
-     *
-     * 功能：对 `search_index` 文档进行批量审核，通过或拒绝
-     * 入参：
-     * - Authorization: 请求头，必须存在
-     * - body: { operation: APPROVED/REJECTED, ids: ["id1","id2"...], remark: "可选备注" }
-     * 返回：操作结果
-     */
     @PostMapping("/search/audit")
     public Result<Void> audit(@RequestBody AuditRequest req) {
         if (req == null || req.getOperation() == null || CollUtil.isEmpty(req.getIds())) {
@@ -189,6 +161,8 @@ public class TdController {
             }
             // 将提交的 ids 视为群组/频道 chatId，按主体同步更新其关联数据
             this.searchService.batchAuditByChatIds(chatIds, op, req.getRemark());
+            // 同时更新明确提交的文档ID，保证主体与指定记录一致
+            this.searchService.batchAudit(req.getIds(), op, req.getRemark());
             return Result.success();
         } catch (Exception e) {
             return Result.error("审核失败: " + e.getMessage());

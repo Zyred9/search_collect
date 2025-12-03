@@ -109,6 +109,19 @@ public class SearchServiceImpl implements SearchService {
     }
 
     @Override
+    public AuditStatusEnum getLatestAuditStatusByChatId(Long chatId) {
+        if (Objects.isNull(chatId)) {
+            return null;
+        }
+        Pageable pageable = PageRequest.of(0, 1, Sort.by(Sort.Direction.DESC, "auditedAt"));
+        Page<SearchBean> page = this.searchRepository.findByChatId(chatId, pageable);
+        if (!page.hasContent()) {
+            return null;
+        }
+        return page.getContent().get(0).getAuditStatus();
+    }
+
+    @Override
     public PageResult<SearchBean> pageSearch(int pageNum, int pageSize, String keyword, SourceTypeEnum type) {
         int pn = Math.max(pageNum, 1);
         int ps = Math.min(Math.max(pageSize, 1), 200);

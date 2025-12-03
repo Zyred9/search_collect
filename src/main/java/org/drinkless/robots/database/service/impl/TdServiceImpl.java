@@ -65,4 +65,9 @@ public class TdServiceImpl implements TdService {
         return this.clientManager.fetchHistoryFromLink(link, inviteLink, count);
     }
 
+    @Override
+    public String latest(long chatId, String url) {
+        return this.clientManager.fetchLatestMessages(chatId, url);
+    }
+
 }

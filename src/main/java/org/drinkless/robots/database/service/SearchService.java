@@ -50,6 +50,14 @@ public interface SearchService {
     boolean exists(long id);
 
     /**
+     * 根据 chatId 获取当前群组/频道的最新审核状态
+     *
+     * @param chatId 群组/频道 chatId
+     * @return 最新一条记录的审核状态；不存在则返回 null
+     */
+    AuditStatusEnum getLatestAuditStatusByChatId(Long chatId);
+
+    /**
      * ES分页查询，按收集时间倒序
      */
     PageResult<SearchBean> pageSearch(int pageNum, int pageSize, String keyword, SourceTypeEnum type);

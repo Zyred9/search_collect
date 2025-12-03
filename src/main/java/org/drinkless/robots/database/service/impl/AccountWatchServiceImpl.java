@@ -32,7 +32,6 @@ public class AccountWatchServiceImpl extends ServiceImpl<AccountWatchMapper, Acc
                 .setWatchEnabled(watch.getWatchEnabled() == null ? exists.getWatchEnabled() : watch.getWatchEnabled())
                 .setUpdatedAt(LocalDateTime.now());
         this.updateById(exists);
-        return;
     }
 
     @Override

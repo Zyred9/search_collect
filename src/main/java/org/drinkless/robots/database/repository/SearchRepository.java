@@ -19,6 +19,8 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface SearchRepository extends ElasticsearchRepository<SearchBean, String> {
 
+    Page<SearchBean> findByChatId(Long chatId, Pageable pageable);
+
     Page<SearchBean> findByType(SourceTypeEnum type, Pageable pageable);
 
     Page<SearchBean> findByTypeAndSourceNameContainingIgnoreCase(SourceTypeEnum type, String keyword, Pageable pageable);
