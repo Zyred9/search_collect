@@ -109,7 +109,7 @@ public class SearchServiceImpl implements SearchService {
     }
 
     @Override
-    public AuditStatusEnum getLatestAuditStatusByChatId(Long chatId) {
+    public SearchBean getLatestAuditStatusByChatId(Long chatId) {
         if (Objects.isNull(chatId)) {
             return null;
         }
@@ -118,7 +118,7 @@ public class SearchServiceImpl implements SearchService {
         if (!page.hasContent()) {
             return null;
         }
-        return page.getContent().get(0).getAuditStatus();
+        return page.getContent().get(0);
     }
 
     @Override

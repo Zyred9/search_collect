@@ -37,12 +37,13 @@ public class MessageConverter {
     /**
      * 将 TDLib 消息转换为 SearchBean（带 Supergroup 信息）
      *
-     * @param message TDLib 消息对象
-     * @param chat TDLib 聊天对象
+     * @param message    TDLib 消息对象
+     * @param chat       TDLib 聊天对象
      * @param supergroup TDLib Supergroup 对象（可为 null，用于提取 username）
+     * @param weight           权重
      * @return SearchBean 对象，如果消息类型不支持则返回 null
      */
-    public static SearchBean convertToSearchBean(TdApi.Message message, TdApi.Chat chat, TdApi.Supergroup supergroup) {
+    public static SearchBean convertToSearchBean(TdApi.Message message, TdApi.Chat chat, TdApi.Supergroup supergroup, int weight) {
         if (Objects.isNull(message) || Objects.isNull(chat)) {
             return null;
         }
@@ -88,6 +89,7 @@ public class MessageConverter {
         bean.setAuditedBy("");
         bean.setAuditedAt(System.currentTimeMillis());
         bean.setMarked(isRestrictedContent(message, supergroup));
+        bean.setWeight(weight);
         extractMediaInfo(message.content, bean);
         return bean;
     }

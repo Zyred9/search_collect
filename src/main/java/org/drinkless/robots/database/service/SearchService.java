@@ -55,7 +55,7 @@ public interface SearchService {
      * @param chatId 群组/频道 chatId
      * @return 最新一条记录的审核状态；不存在则返回 null
      */
-    AuditStatusEnum getLatestAuditStatusByChatId(Long chatId);
+    SearchBean getLatestAuditStatusByChatId(Long chatId);
 
     /**
      * ES分页查询，按收集时间倒序

@@ -71,6 +71,11 @@ public class SearchBean {
     @Field(type = FieldType.Long)
     private Long collectTime;
 
+    /** 资源权重 **/
+    @Field(type = FieldType.Integer)
+    private Integer weight;
+
+
     // ==================== 媒体资源特有字段 ====================
 
     /** 时间长度(视频和音频专用,单位:秒,用于排序) **/

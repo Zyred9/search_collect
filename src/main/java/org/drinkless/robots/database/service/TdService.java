@@ -15,7 +15,7 @@ public interface TdService {
 
     boolean offline(String phone);
 
-    String history(String link, String inviteLink, int count);
+    String history(String link, String inviteLink, int count, int weight);
 
     String latest(long chatId, String url);
 }

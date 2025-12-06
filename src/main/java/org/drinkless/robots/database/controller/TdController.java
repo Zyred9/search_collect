@@ -90,13 +90,15 @@ public class TdController {
     @GetMapping("/history")
     public Result<String> history (@RequestParam(value = "link", required = false) String link,
                                    @RequestParam(value = "inviteLink", required = false) String inviteLink,
-                                   @RequestParam(value = "count", required = false, defaultValue = "3000") int count) {
+                                   @RequestParam(value = "count", required = false, defaultValue = "3000") int count,
+                                   @RequestParam(value = "weight", required = false, defaultValue = "0") int weight  // 权重：0.后台直接拉 1.加入群组/频道 2.加入并给管理员
+    ) {
         if (StrUtil.isBlank(link) && StrUtil.isBlank(inviteLink)) {
             return Result.error("请提供 link 或 inviteLink 中的至少一个参数");
         }
         
         try {
-            String message = this.tdService.history(link, inviteLink, count);
+            String message = this.tdService.history(link, inviteLink, count, weight);
             return Result.success(message != null ? message : "历史消息拉取任务已启动");
         } catch (Exception e) {
             return Result.error("拉取失败: " + e.getMessage());

@@ -25,10 +25,8 @@ import org.springframework.stereotype.Component;
 
 import javax.annotation.Resource;
 import java.time.LocalDateTime;
-import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -60,8 +58,6 @@ public class ClientManager {
     private final Map<String, Boolean> authStatusMap = new ConcurrentHashMap<>();
     // 记录已处理过的邮箱验证状态，防止重复发送
     private final Map<String, Boolean> emailSkippedMap = new ConcurrentHashMap<>();
-    // 开启实时日志打印的群/频道：手机号 -> 监听的 chatId 集合
-    private final Map<String, Set<Long>> phoneToWatchedChatIds = new ConcurrentHashMap<>();
     // Supergroup 缓存：supergroupId -> Supergroup 对象（用于提取 username）
     private final Map<Long, TdApi.Supergroup> supergroupCache = new ConcurrentHashMap<>();
 
@@ -167,14 +163,6 @@ public class ClientManager {
         if (object instanceof TdApi.UpdateAuthorizationState updateAuthorizationState) {
             log.info("【登录】 {} 收到授权状态变化：{}", phone, updateAuthorizationState.authorizationState.getClass().getSimpleName());
             handleAuthorizationState(phone, updateAuthorizationState.authorizationState);
-            return;
-        }
-        if (object instanceof TdApi.UpdateMessageContent updateMessageContent) {
-            long chatId = updateMessageContent.chatId;
-            if (shouldWatch(phone, chatId)) {
-                String content = formatContent(updateMessageContent.newContent);
-                log.info("[群历史-编辑] chatId={} msgId={} content={}", chatId, updateMessageContent.messageId, content);
-            }
         }
     }
 
@@ -245,8 +233,6 @@ public class ClientManager {
         }
         if (authorizationState instanceof TdApi.AuthorizationStateReady) {
             handleAuthorizedReady(client, phone);
-            // 恢复监听与补齐历史
-            recoverWatchesAndBackfill(client, phone);
             return;
         }
         if (authorizationState instanceof TdApi.AuthorizationStateClosed) {
@@ -300,104 +286,6 @@ public class ClientManager {
         }
     }
 
-    private void recoverWatchesAndBackfill(Client client, String phone) {
-        try {
-            for (AccountWatch w : accountWatchService.findEnabledByPhone(phone)) {
-                startWatchChat(phone, w.getChatId());
-                // 从断点向"更晚"补齐：使用 offset=-1 模式
-                backfillFromLastMessageId(client, phone, w);
-            }
-        } catch (Exception e) {
-            log.error("[恢复] 恢复监听失败 phone={} err={}", phone, e.getMessage());
-        }
-    }
-
-    private void backfillFromLastMessageId(Client client, String phone, AccountWatch watch) {
-        long chatId = watch.getChatId();
-        long lastId = Objects.nonNull(watch.getLastMessageId()) ? watch.getLastMessageId() : 0L;
-        
-        if (lastId <= 0) {
-            log.info("[恢复] 小号 {} 群组 {} 无断点记录，跳过历史补齐", phone, chatId);
-            return;
-        }
-        
-        log.info("[恢复] 小号 {} 开始补齐群组 {} 从消息ID {} 之后的历史", phone, chatId, lastId);
-        
-        CompletableFuture.runAsync(() -> {
-            try {
-                // 1. 预先获取 Chat 信息（只获取一次）
-                CompletableFuture<TdApi.Object> chatFuture = new CompletableFuture<>();
-                client.send(new TdApi.GetChat(chatId), chatFuture::complete);
-                TdApi.Chat chat = chatFuture.get(CHAT_HISTORY_TIMEOUT_SECONDS, TimeUnit.SECONDS) instanceof TdApi.Chat c 
-                    ? c : fallbackChat(chatId);
-                
-                // 2. 如果是超级群组，预先获取 Supergroup 信息（只获取一次）
-                TdApi.Supergroup supergroup = null;
-                if (chat.type instanceof TdApi.ChatTypeSupergroup supergroupType) {
-                    CompletableFuture<TdApi.Supergroup> sgFuture = new CompletableFuture<>();
-                    fetchAndCacheSupergroup(client, supergroupType.supergroupId, sgFuture::complete);
-                    supergroup = sgFuture.get(CHAT_HISTORY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-                }
-                
-                // 3. 分页获取历史消息
-                boolean hasMore = true;
-                long fromId = lastId;
-                int totalFetched = 0;
-                long maxMessageId = lastId;
-                TdApi.Supergroup finalSupergroup = supergroup;
-                
-                while (hasMore) {
-                    CompletableFuture<TdApi.Object> historyFuture = new CompletableFuture<>();
-                    client.send(new TdApi.GetChatHistory(chatId, fromId, -1, HISTORY_PAGE_SIZE, false), historyFuture::complete);
-                    
-                    TdApi.Object obj = historyFuture.get(CHAT_HISTORY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-                    if (obj instanceof TdApi.Messages msgs) {
-                        TdApi.Message[] arr = msgs.messages;
-                        if (arr == null || arr.length == 0) {
-                            log.info("[恢复] 小号 {} 群组 {} 历史补齐完成，共获取 {} 条新消息", phone, chatId, totalFetched);
-                            break;
-                        }
-                        
-                        // 收集本页需要保存的消息
-                        java.util.List<SearchBean> batchList = new java.util.ArrayList<>();
-                        for (TdApi.Message m : arr) {
-                            if (m.id > lastId) {
-                                SearchBean bean = MessageConverter.convertToSearchBean(m, chat, finalSupergroup);
-                                if (Objects.nonNull(bean)) {
-                                    batchList.add(bean);
-                                    maxMessageId = Math.max(maxMessageId, m.id);
-                                }
-                            }
-                        }
-                        
-                        // 批量保存消息（一次性保存整页）
-                        if (!batchList.isEmpty()) {
-                            searchService.batchSave(batchList);
-                            totalFetched += batchList.size();
-                        }
-                        
-                        // 批量更新断点（每页更新一次）
-                        if (maxMessageId > lastId) {
-                            accountWatchService.updateLastMessage(phone, chatId, maxMessageId);
-                        }
-                        
-                        log.info("[恢复] 小号 {} 群组 {} 本页获取 {} 条新消息，累计 {}", phone, chatId, batchList.size(), totalFetched);
-                        
-                        fromId = arr[arr.length - 1].id;
-                        Thread.sleep(QPS_SLEEP_MILLIS);
-                    } else {
-                        hasMore = false;
-                    }
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                log.warn("[恢复] 小号 {} 群组 {} 补齐被中断", phone, chatId);
-            } catch (Exception e) {
-                log.error("[恢复] 小号 {} 群组 {} 补齐异常", phone, chatId, e);
-            }
-        });
-    }
-
     private void handleAuthorizedReady(Client client, String phone) {
         authStatusMap.put(phone, true);
         
@@ -428,20 +316,6 @@ public class ClientManager {
         });
     }
 
-    /* ============================== 入群/历史回溯/监听 ============================== */
-
-
-    private TdApi.Chat fallbackChat(long chatId) {
-        TdApi.Chat c = new TdApi.Chat();
-        c.id = chatId;
-        c.title = "";
-        c.type = new TdApi.ChatTypeSupergroup(0, false); // 占位，避免空指针
-        return c;
-    }
-
-
-    /* ============================== 日志格式化与监听控制 ============================== */
-
 
     private void fetchAndCacheSupergroup(Client client, long supergroupId, java.util.function.Consumer<TdApi.Supergroup> callback) {
         // 先从缓存获取
@@ -465,49 +339,6 @@ public class ClientManager {
     }
 
     /**
-     * 格式化消息内容为可读字符串
-     *
-     * @param content TDLib消息内容对象
-     * @return 格式化后的字符串
-     */
-    private String formatContent(TdApi.MessageContent content) {
-        if (content instanceof TdApi.MessageText mt) {
-            return mt.text != null ? mt.text.text : "";
-        }
-        if (content instanceof TdApi.MessagePhoto mp) {
-            return formatMediaContent("Photo", mp.caption);
-        }
-        if (content instanceof TdApi.MessageVideo mv) {
-            return formatMediaContent("Video", mv.caption);
-        }
-        if (content instanceof TdApi.MessageDocument md) {
-            return formatMediaContent("Document", md.caption);
-        }
-        if (content instanceof TdApi.MessageAudio ma) {
-            return formatMediaContent("Audio", ma.caption);
-        }
-        if (content instanceof TdApi.MessageVoiceNote mvn) {
-            return formatMediaContent("Voice", mvn.caption);
-        }
-        if (content instanceof TdApi.MessageAnimation man) {
-            return formatMediaContent("Animation", man.caption);
-        }
-        if (content instanceof TdApi.MessageSticker ignored) {
-            return "[Sticker]";
-        }
-        if (content instanceof TdApi.MessageContact ignored) {
-            return "[Contact]";
-        }
-        if (content instanceof TdApi.MessageLocation ignored) {
-            return "[Location]";
-        }
-        if (content instanceof TdApi.MessagePoll ignored) {
-            return "[Poll]";
-        }
-        return "[" + content.getClass().getSimpleName() + "]";
-    }
-
-    /**
      * 格式化媒体消息内容（图片、视频、文档等）
      *
      * @param mediaType 媒体类型（Photo/Video/Document等）
@@ -519,26 +350,6 @@ public class ClientManager {
         return StrUtil.format("[{}] caption={}", mediaType, captionText);
     }
 
-    private boolean shouldWatch(String phone, long chatId) {
-        Set<Long> set = phoneToWatchedChatIds.get(phone);
-        return set != null && set.contains(chatId);
-    }
-
-    private void startWatchChat(String phone, long chatId) {
-        phoneToWatchedChatIds
-                .computeIfAbsent(phone, k -> Collections.newSetFromMap(new ConcurrentHashMap<>()))
-                .add(chatId);
-    }
-
-    @SuppressWarnings("unused")
-    private void stopWatchChat(String phone, long chatId) {
-        Set<Long> set = phoneToWatchedChatIds.get(phone);
-        if (set != null) {
-            set.remove(chatId);
-        }
-    }
-
-    /* ============================== 异常处理 ============================== */
 
     private void onUpdateException(Throwable e) {
         log.error("[TDLib] 更新异常: {}", e.getMessage(), e);
@@ -547,8 +358,6 @@ public class ClientManager {
     private void onDefaultException(Throwable e) {
         log.error("[TDLib] 默认异常: {}", e.getMessage(), e);
     }
-
-    /* ============================== 工具方法 ============================== */
 
     /**
      * 将TDLib消息的Unix时间戳转换为LocalDateTime
@@ -610,13 +419,14 @@ public class ClientManager {
      * 2. 私密群组: 传入 inviteLink (格式: t.me/+xxxxx 或 t.me/joinchat/xxxxx)
      * 3. 优先级: inviteLink > link
      * </pre>
-     * 
-     * @param link 公开群组链接（支持 @username 或 t.me/username）
+     *
+     * @param link       公开群组链接（支持 @username 或 t.me/username）
      * @param inviteLink 私密群组邀请链接（格式: t.me/+xxxxx 或 t.me/joinchat/xxxxx）
-     * @param count 拉取消息数量
+     * @param count      拉取消息数量
+     * @param weight     权重：0.后台直接拉 1.加入群组/频道 2.加入并给管理员
      * @return 错误信息，成功返回 "开始查找聊天"
      */
-    public String fetchHistoryFromLink(String link, String inviteLink, int count) {
+    public String fetchHistoryFromLink(String link, String inviteLink, int count, int weight) {
         Client client = selectAvailableClient();
         if (Objects.isNull(client)) {
             return "没有可用的已登录客户端";
@@ -633,7 +443,7 @@ public class ClientManager {
                 if (joinResult instanceof TdApi.Chat chat) {
                     log.info("[拉取历史-私密] 成功加入群组: {} (ID: {})", chat.title, chat.id);
                     // 新加入的群组，拉取完成后需要退出
-                    fetchHistoryMessages(client, phone, chat, inviteLink, count, true);
+                    fetchHistoryMessages(client, phone, chat, inviteLink, count, true, weight);
                     
                 } else if (joinResult instanceof TdApi.Error error) {
                     // 可能已经是成员，尝试通过 checkChatInviteLink 获取 chatId
@@ -649,7 +459,7 @@ public class ClientManager {
                                     if (chatResult instanceof TdApi.Chat existingChat) {
                                         log.info("[拉取历史-私密] 找到已加入的群组: {} (ID: {})", existingChat.title, existingChat.id);
                                         // 已是成员，不需要退出
-                                        fetchHistoryMessages(client, phone, existingChat, inviteLink, count, false);
+                                        fetchHistoryMessages(client, phone, existingChat, inviteLink, count, false, weight);
                                     } else if (chatResult instanceof TdApi.Error chatError) {
                                         log.error("[拉取历史-私密] 获取群组信息失败: {}", chatError.message);
                                     }
@@ -663,7 +473,6 @@ public class ClientManager {
                     });
                 }
             });
-            
             return "开始加入群组";
         }
 
@@ -677,7 +486,7 @@ public class ClientManager {
             client.send(new TdApi.SearchPublicChat(username), result -> {
                 if (result instanceof TdApi.Chat chat) {
                     log.info("[拉取历史-公开] 找到群组: {} (ID: {})", chat.title, chat.id);
-                    fetchHistoryMessages(client, phone, chat, link, count, true);
+                    fetchHistoryMessages(client, phone, chat, link, count, true, weight);
                 } else if (result instanceof TdApi.Error error) {
                     log.error("[拉取历史-公开] 查找聊天 {} 失败: {}", username, error.message);
                 }
@@ -731,12 +540,12 @@ public class ClientManager {
      * @param count  条数
      * @param shouldLeaveAfterFetch 拉取完成后是否退出群组（true=新加入需要退出，false=原本已是成员）
      */
-    private void fetchHistoryMessages(Client client, String phone, TdApi.Chat chat, String telegramLink, int count, boolean shouldLeaveAfterFetch) {
+    private void fetchHistoryMessages(Client client, String phone, TdApi.Chat chat, String telegramLink, int count, boolean shouldLeaveAfterFetch, int weight) {
         // 如果是超级群组,提前获取并缓存 Supergroup 信息
         if (chat.type instanceof TdApi.ChatTypeSupergroup supergroupType) {
-            fetchAndCacheSupergroup(client, supergroupType.supergroupId, a -> startFetchTask(client, phone, chat, telegramLink, count, shouldLeaveAfterFetch));
+            fetchAndCacheSupergroup(client, supergroupType.supergroupId, a -> startFetchTask(client, phone, chat, telegramLink, count, shouldLeaveAfterFetch, weight));
         } else {
-            startFetchTask(client, phone, chat, telegramLink, count, shouldLeaveAfterFetch);
+            startFetchTask(client, phone, chat, telegramLink, count, shouldLeaveAfterFetch, weight);
         }
     }
 
@@ -783,21 +592,20 @@ public class ClientManager {
                     .setWatchEnabled(Boolean.TRUE);
             this.accountWatchService.upsertWatch(upsert);
 
-            AuditStatusEnum chatAuditStatus = this.searchService.getLatestAuditStatusByChatId(chatId);
+            SearchBean chatAuditBean = this.searchService.getLatestAuditStatusByChatId(chatId);
 
             long lastMessageId = Objects.nonNull(watch) && Objects.nonNull(watch.getLastMessageId())
                     ? watch.getLastMessageId() : 0L;
 
             int totalFetched = 0;
-            long fromMessageId = Math.max(lastMessageId, 0L);
-            int offset = lastMessageId > 0L ? -1 : 0;
+            long fromMessageId = 0L;
             long maxMessageIdInBatch = 0L;
-            boolean hasMore = true;
+            boolean reachedOldMessages = false;
             java.util.List<SearchBean> buffer = new java.util.ArrayList<>();
 
-            while (hasMore) {
+            while (true) {
                 CompletableFuture<TdApi.Object> future = new CompletableFuture<>();
-                client.send(new TdApi.GetChatHistory(chatId, fromMessageId, offset, HISTORY_PAGE_SIZE, false), future::complete);
+                client.send(new TdApi.GetChatHistory(chatId, fromMessageId, 0, HISTORY_PAGE_SIZE, false), future::complete);
                 TdApi.Object obj = future.get(CHAT_HISTORY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
                 if (obj instanceof TdApi.Messages msgs) {
@@ -807,13 +615,13 @@ public class ClientManager {
                     }
 
                     for (TdApi.Message message : messages) {
-                        if (lastMessageId > 0 && message.id <= lastMessageId) {
-                            hasMore = false;
+                        if (lastMessageId > 0L && message.id <= lastMessageId) {
+                            reachedOldMessages = true;
                             break;
                         }
-                        SearchBean searchBean = MessageConverter.convertToSearchBean(message, chat, supergroup);
+                        SearchBean searchBean = MessageConverter.convertToSearchBean(message, chat, supergroup, chatAuditBean.getWeight());
                         if (Objects.nonNull(searchBean)) {
-                            if (chatAuditStatus == AuditStatusEnum.APPROVED) {
+                            if (AuditStatusEnum.APPROVED.equals(chatAuditBean.getAuditStatus())) {
                                 searchBean.setAuditStatus(AuditStatusEnum.APPROVED);
                                 searchBean.setAuditRemark("");
                                 searchBean.setAuditedBy("");
@@ -828,22 +636,22 @@ public class ClientManager {
                     if (!buffer.isEmpty()) {
                         searchService.batchSave(buffer);
                         buffer.clear();
-                        if (maxMessageIdInBatch > 0) {
+                        if (maxMessageIdInBatch > lastMessageId) {
                             this.accountWatchService.updateLastMessage(phone, chatId, maxMessageIdInBatch);
                         }
                     }
 
-                    if (!hasMore) {
+                    if (reachedOldMessages) {
                         break;
                     }
 
                     fromMessageId = messages[messages.length - 1].id;
-                    Thread.sleep(QPS_SLEEP_MILLIS);
+                    ThreadHelper.sleepMs(QPS_SLEEP_MILLIS);
                 } else if (obj instanceof TdApi.Error error) {
                     log.error("[最新消息] chatId={} 拉取失败: {}", chatId, error.message);
                     break;
                 } else {
-                    hasMore = false;
+                    break;
                 }
             }
 
@@ -859,7 +667,7 @@ public class ClientManager {
     /**
      * 启动拉取任务
      */
-    private void startFetchTask(Client client, String phone, TdApi.Chat chat, String telegramLink, int count, boolean shouldLeaveAfterFetch) {
+    private void startFetchTask(Client client, String phone, TdApi.Chat chat, String telegramLink, int count, boolean shouldLeaveAfterFetch, int weight) {
         long chatId = chat.id;
 
         TdApi.Supergroup supergroup = null;
@@ -902,14 +710,14 @@ public class ClientManager {
             lastProcessedMessageId = 0;
         }
 
-        CompletableFuture.runAsync(() -> fetchHistoryMessagesAsync(client, phone, chat, telegramLink, lastProcessedMessageId, count, shouldLeaveAfterFetch), ThreadHelper::execute);
+        CompletableFuture.runAsync(() -> fetchHistoryMessagesAsync(client, phone, chat, telegramLink, lastProcessedMessageId, count, weight), ThreadHelper::execute);
     }
 
 
-    private void fetchHistoryMessagesAsync(Client client, String phone, TdApi.Chat chat, String telegramLink, long lastProcessedMessageId, int count, boolean shouldLeaveAfterFetch) {
+    private void fetchHistoryMessagesAsync(Client client, String phone, TdApi.Chat chat, String telegramLink, long lastProcessedMessageId, int count, int weight) {
         long chatId = chat.id;
 
-        Integer number = this.saveChannelOrGroupRecord(chat, telegramLink);
+        Integer number = this.saveChannelOrGroupRecord(chat, telegramLink, weight);
 
         // 开始拉取历史消息
         int totalFetched = 0;
@@ -950,7 +758,7 @@ public class ClientManager {
                         if (chat.type instanceof TdApi.ChatTypeSupergroup supergroupType) {
                             supergroup = supergroupCache.get(supergroupType.supergroupId);
                         }
-                        SearchBean searchBean = MessageConverter.convertToSearchBean(message, chat, supergroup);
+                        SearchBean searchBean = MessageConverter.convertToSearchBean(message, chat, supergroup, weight);
                         if (Objects.nonNull(searchBean)) {
                             searchBeans.add(searchBean);
                             totalFetched++;
@@ -1052,7 +860,7 @@ public class ClientManager {
         return link;
     }
 
-    private Integer saveChannelOrGroupRecord(TdApi.Chat chat, String telegramLink) {
+    private Integer saveChannelOrGroupRecord(TdApi.Chat chat, String telegramLink, int weight) {
         try {
 
             boolean exists = this.searchService.exists(chat.id);
@@ -1098,7 +906,7 @@ public class ClientManager {
 
             SearchBean bean = new SearchBean()
                 .setId(String.valueOf(chat.id))
-                .setType(type)
+                .setType(type).setWeight(weight)
                 .setSourceName(chat.title)
                 .setSourceUrl(telegramLink)
                 .setSubscribers(subscribers)
