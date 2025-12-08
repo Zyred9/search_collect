@@ -50,7 +50,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  *     .build());
  * </pre>
  *
- * @author zyred
+ * @author admin
  * @since 1.0
  */
 @Slf4j

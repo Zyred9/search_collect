@@ -31,7 +31,7 @@ import java.util.function.Consumer;
  * 高德地图 Web 服务工具类
  * 请求有QPS限制
  *
- * @author zyred
+ * @author admin
  * @since 2025/10/14 14:30
  */
 @Slf4j

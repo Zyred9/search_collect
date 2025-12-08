@@ -8,7 +8,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  * CORS 跨域配置
  * 允许前端页面跨域访问后端接口
  *
- * @author zyred
+ * @author admin
  * @since 2025/11/24
  */
 @Configuration

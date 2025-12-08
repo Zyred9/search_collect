@@ -11,7 +11,7 @@ import java.util.List;
 /**
  * 搜索服务接口
  *
- * @author zyred
+ * @author admin
  * @since 1.0
  */
 public interface SearchService {

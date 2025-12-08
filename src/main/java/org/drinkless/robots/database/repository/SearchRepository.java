@@ -13,7 +13,7 @@ import org.springframework.stereotype.Repository;
  * 提供对 SearchBean 的 CRUD 操作和全文检索能力
  * </p>
  *
- * @author zyred
+ * @author admin
  * @since 1.0
  */
 @Repository

@@ -28,7 +28,7 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     username: root
     password: Qj683k2^11299%nkjb
-    url: jdbc:mysql://127.0.0.1:3306/kuaisou_ai_bot?useUnicode=true&characterEncoding=utf8&autoReconnect=true&serverTimezone=Asia/Shanghai&useSSL=false&nullCatalogMeansCurrent=true
+    url: jdbc:mysql://127.0.0.1:3306/search_engin?useUnicode=true&characterEncoding=utf8&autoReconnect=true&serverTimezone=Asia/Shanghai&useSSL=false&nullCatalogMeansCurrent=true
     # HikariCP 连接池配置
     hikari:
       maximum-pool-size: 30           # 最大连接数30个

@@ -4,7 +4,7 @@ package org.drinkless.robots.database.service;
 /**
  *
  *
- * @author zyred
+ * @author admin
  * @since 2025/11/11 15:55
  */
 public interface TdService {

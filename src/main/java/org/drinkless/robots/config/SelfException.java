@@ -13,7 +13,7 @@ import lombok.Getter;
  * throw new SelfException(404, "资源未找到");
  * </pre>
  *
- * @author zyred
+ * @author admin
  * @since 1.0
  */
 @Getter

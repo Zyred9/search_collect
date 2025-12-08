@@ -19,7 +19,7 @@ import java.util.concurrent.CompletableFuture;
 /**
  *
  *
- * @author zyred
+ * @author admin
  * @since 2025/11/11 15:46
  */
 public class DefaultTelegramClient extends AbstractTelegramClient{
