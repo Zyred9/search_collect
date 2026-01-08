@@ -18,10 +18,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.elasticsearch.client.RestHighLevelClient;
+import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.index.reindex.UpdateByQueryRequest;
 import org.elasticsearch.script.Script;
 import org.elasticsearch.script.ScriptType;
-import org.elasticsearch.index.query.QueryBuilders;
 import org.springframework.data.elasticsearch.core.document.Document;
 import org.springframework.data.elasticsearch.core.query.UpdateQuery;
 import org.springframework.stereotype.Service;
@@ -29,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -188,5 +189,54 @@ public class SearchServiceImpl implements SearchService {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public long fixChannelAndGroupSourceUrlByChannelUrl() {
+        // 直观方案：分页查出文档 -> 判断 -> 批量更新
+        List<SourceTypeEnum> types = Arrays.asList(SourceTypeEnum.CHANNEL, SourceTypeEnum.GROUP);
+
+        final int pageSize = 500;
+        int pageNum = 0;
+        long updated = 0L;
+
+        while (true) {
+            Pageable pageable = PageRequest.of(pageNum, pageSize);
+            Page<SearchBean> page = this.searchRepository.findByTypeIn(types, pageable);
+            if (!page.hasContent()) {
+                break;
+            }
+
+            List<SearchBean> toUpdate = new ArrayList<>();
+            for (SearchBean bean : page.getContent()) {
+                if (Objects.isNull(bean)) {
+                    continue;
+                }
+
+                String channelUrl = StrUtil.trim(bean.getChannelUrl());
+                if (StrUtil.isBlank(channelUrl)) {
+                    continue;
+                }
+
+                if (!StrUtil.equals(bean.getSourceUrl(), channelUrl)) {
+                    bean.setSourceUrl(channelUrl);
+                    toUpdate.add(bean);
+                }
+            }
+
+            if (CollUtil.isNotEmpty(toUpdate)) {
+                this.searchRepository.saveAll(toUpdate);
+                updated += toUpdate.size();
+            }
+
+            if (!page.hasNext()) {
+                break;
+            }
+            pageNum++;
+        }
+
+        log.info("[修复] CHANNEL/GROUP sourceUrl 已按 channelUrl 修复完成，updated={}", updated);
+        return updated;
     }
 }

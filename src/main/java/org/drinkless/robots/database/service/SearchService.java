@@ -71,4 +71,16 @@ public interface SearchService {
      * 按群组/频道chatId批量审核：同步更新关联数据
      */
     void batchAuditByChatIds(java.util.List<Long> chatIds, AuditStatusEnum status, String remark);
+
+    /**
+     * 修复群组/频道主体文档的链接字段
+     * <pre>
+     * 目标索引：search_index
+     * 目标类型：CHANNEL / GROUP
+     * 更新规则：仅当 channelUrl 非空且 sourceUrl != channelUrl 时，令 sourceUrl = channelUrl
+     * </pre>
+     *
+     * @return 实际更新的文档数量
+     */
+    long fixChannelAndGroupSourceUrlByChannelUrl();
 }

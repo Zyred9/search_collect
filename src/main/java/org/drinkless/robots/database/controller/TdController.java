@@ -171,4 +171,20 @@ public class TdController {
         }
     }
 
+    /**
+     * 修复 search_index 中 CHANNEL/GROUP 主体文档的链接字段
+     * <pre>
+     * 仅当 channelUrl 非空且 sourceUrl != channelUrl 时，更新 sourceUrl = channelUrl
+     * </pre>
+     */
+    @GetMapping("/search/fix/sourceUrl")
+    public Result<Long> fixChannelAndGroupSourceUrl() {
+        try {
+            long updated = this.searchService.fixChannelAndGroupSourceUrlByChannelUrl();
+            return Result.success(updated);
+        } catch (Exception e) {
+            return Result.error("修复失败: " + e.getMessage());
+        }
+    }
+
 }
