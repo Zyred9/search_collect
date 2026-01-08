@@ -338,19 +338,6 @@ public class ClientManager {
         });
     }
 
-    /**
-     * 格式化媒体消息内容（图片、视频、文档等）
-     *
-     * @param mediaType 媒体类型（Photo/Video/Document等）
-     * @param caption 媒体说明文本
-     * @return 格式化后的字符串
-     */
-    private String formatMediaContent(String mediaType, TdApi.FormattedText caption) {
-        String captionText = (caption != null && caption.text != null) ? caption.text : "";
-        return StrUtil.format("[{}] caption={}", mediaType, captionText);
-    }
-
-
     private void onUpdateException(Throwable e) {
         log.error("[TDLib] 更新异常: {}", e.getMessage(), e);
     }
@@ -717,7 +704,7 @@ public class ClientManager {
     private void fetchHistoryMessagesAsync(Client client, String phone, TdApi.Chat chat, String telegramLink, long lastProcessedMessageId, int count, int weight) {
         long chatId = chat.id;
 
-        Integer number = this.saveChannelOrGroupRecord(chat, telegramLink, weight);
+        Integer number = this.saveChannelOrGroupRecord(chat, weight);
 
         // 开始拉取历史消息
         int totalFetched = 0;
@@ -860,7 +847,7 @@ public class ClientManager {
         return link;
     }
 
-    private Integer saveChannelOrGroupRecord(TdApi.Chat chat, String telegramLink, int weight) {
+    private Integer saveChannelOrGroupRecord(TdApi.Chat chat, int weight) {
         try {
 
             boolean exists = this.searchService.exists(chat.id);
@@ -908,7 +895,7 @@ public class ClientManager {
                 .setId(String.valueOf(chat.id))
                 .setType(type).setWeight(weight)
                 .setSourceName(chat.title)
-                .setSourceUrl(telegramLink)
+                .setSourceUrl(url)
                 .setSubscribers(subscribers)
                 .setCollectTime(System.currentTimeMillis())
                 .setMarked(isRestricted)
